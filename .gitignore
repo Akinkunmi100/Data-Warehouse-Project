@@ -1,0 +1,42 @@
+# ══════════════════════════════════════════
+# Research Data Platform — Git Exclusions
+# ══════════════════════════════════════════
+
+# Secrets & Environment Variables (CRITICAL)
+secrets/
+.env
+*.env
+.env.*
+
+# Local data & databases
+postgres-data/
+minio-data/
+prefect/
+backup/
+uploads/
+
+# IDE files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# System logs
+*.log
+backup/backup.log
+backup/db_size_history.log

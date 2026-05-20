@@ -1,0 +1,83 @@
+# ══════════════════════════════════════════
+# Research Data Platform — Core Services
+# ══════════════════════════════════════════
+# Start: docker compose up -d
+# Stop:  docker compose down
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rp-postgres
+    restart: always
+    mem_limit: 3g
+    env_file: ./secrets/.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - rp-postgres-data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Metabase needs its OWN database — never share with warehouse
+  metabase-db-init:
+    image: postgres:16-alpine
+    container_name: rp-metabase-db-init
+    restart: "no"
+    env_file: ./secrets/.env
+    entrypoint: >
+      sh -c "sleep 8 &&
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      -c \"CREATE DATABASE $${METABASE_DB_NAME}\" 2>/dev/null || true &&
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      -c \"CREATE USER $${METABASE_DB_USER} WITH PASSWORD '"'"'$${METABASE_DB_PASSWORD}'"'"'\" 2>/dev/null || true &&
+      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
+      -c \"GRANT ALL ON DATABASE $${METABASE_DB_NAME} TO $${METABASE_DB_USER}\" 2>/dev/null || true &&
+      echo 'Metabase DB init complete'"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:latest
+    container_name: rp-minio
+    restart: always
+    mem_limit: 1g
+    env_file: ./secrets/.env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - rp-minio-data:/data
+    ports: ["9000:9000", "9001:9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  prefect:
+    image: prefecthq/prefect:3-latest
+    container_name: rp-prefect
+    restart: always
+    mem_limit: 512m
+    environment:
+      PREFECT_API_URL: http://0.0.0.0:4200/api
+    command: prefect server start --host 0.0.0.0
+    volumes:
+      - ./prefect:/root/.prefect
+    ports: ["4200:4200"]
+
+volumes:
+  rp-postgres-data:
+    name: rp-postgres-data
+  rp-minio-data:
+    name: rp-minio-data

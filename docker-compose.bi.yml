@@ -1,0 +1,39 @@
+# ══════════════════════════════════════════
+# Research Data Platform — Business Intelligence (On-Demand Only)
+# ══════════════════════════════════════════
+# CRITICAL: Metabase and Superset consume ~1.5GB RAM each.
+# Never start both at the same time to avoid OOM crashes.
+#
+# Usage:
+#   docker compose -f docker-compose.bi.yml up metabase -d
+#   docker compose -f docker-compose.bi.yml up superset -d
+#   docker compose -f docker-compose.bi.yml stop
+
+services:
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: rp-metabase
+    restart: always
+    mem_limit: 1500m
+    env_file: ./secrets/.env
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${METABASE_DB_USER}
+      MB_DB_PASS: ${METABASE_DB_PASSWORD}
+      MB_DB_DBNAME: ${METABASE_DB_NAME}
+    ports: ["3000:3000"]
+    extra_hosts:
+      - "postgres:127.0.0.1"
+
+  superset:
+    image: apache/superset:latest
+    container_name: rp-superset
+    restart: always
+    mem_limit: 1500m
+    env_file: ./secrets/.env
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+    ports: ["8088:8088"]
