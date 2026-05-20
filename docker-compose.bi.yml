@@ -24,7 +24,7 @@ services:
       MB_DB_USER: ${METABASE_DB_USER}
       MB_DB_PASS: ${METABASE_DB_PASSWORD}
       MB_DB_DBNAME: ${METABASE_DB_NAME}
-    ports: ["3000:3000"]
+    ports: ["3030:3000"]
 
   superset:
     image: apache/superset:latest

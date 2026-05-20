@@ -82,7 +82,7 @@ DB_NAME = os.getenv("POSTGRES_DB")
 engine = None
 try:
     from sqlalchemy import create_engine, text
-    DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@localhost:5432/{DB_NAME}"
+    DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@localhost:5435/{DB_NAME}"
     engine = create_engine(DB_URL)
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))

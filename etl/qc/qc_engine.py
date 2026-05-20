@@ -3,34 +3,42 @@
 # ══════════════════════════════════════════
 
 import os
-import json
 from dotenv import load_dotenv
-from prefect import flow, task
-from prefect.logging import get_run_logger
-from sqlalchemy import create_engine, text
 
 # Dynamic environmental loading relative to script path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, "..", "..", "secrets", ".env")
 load_dotenv(ENV_PATH)
 
+import re
+import json
+from prefect import flow, task
+from prefect.logging import get_run_logger
+from sqlalchemy import create_engine, text
+
+def _safe_id(name: str) -> str:
+    """Sanitize an identifier — allow only alphanumeric and underscores."""
+    return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASS = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
 DB_HOST = "localhost"
-DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:5432/{DB_NAME}"
+DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:5435/{DB_NAME}"
 
 @task(name="qc-duplicate-detection")
 def check_duplicates(form_id: str, client_schema: str, engine):
     """Flags duplicate phone submissions received on the same day."""
     logger = get_run_logger()
-    table_name = f"{client_schema}.{form_id.replace('-', '_')}"
+    safe_schema = _safe_id(client_schema)
+    safe_form   = _safe_id(form_id)
+    table_name  = f"{safe_schema}.{safe_form}"
     
     with engine.connect() as conn:
         cols_query = text(
             "SELECT column_name FROM information_schema.columns WHERE table_schema=:s AND table_name=:t"
         )
-        cols = [r[0] for r in conn.execute(cols_query, {"s": client_schema, "t": form_id.replace('-', '_')}).fetchall()]
+        cols = [r[0] for r in conn.execute(cols_query, {"s": safe_schema, "t": safe_form}).fetchall()]
         
         if 'respondent_phone' not in cols or 'submission_date' not in cols:
             logger.info("Duplicates check skipped: fields 'respondent_phone' or 'submission_date' not found in table.")
@@ -61,13 +69,15 @@ def check_duplicates(form_id: str, client_schema: str, engine):
 def check_speed(form_id: str, client_schema: str, engine):
     """Flags submissions that fall below the 10th percentile for interview duration."""
     logger = get_run_logger()
-    table_name = f"{client_schema}.{form_id.replace('-', '_')}"
+    safe_schema = _safe_id(client_schema)
+    safe_form   = _safe_id(form_id)
+    table_name  = f"{safe_schema}.{safe_form}"
     
     with engine.connect() as conn:
         cols_query = text(
             "SELECT column_name FROM information_schema.columns WHERE table_schema=:s AND table_name=:t"
         )
-        cols = [r[0] for r in conn.execute(cols_query, {"s": client_schema, "t": form_id.replace('-', '_')}).fetchall()]
+        cols = [r[0] for r in conn.execute(cols_query, {"s": safe_schema, "t": safe_form}).fetchall()]
         
         if 'duration_seconds' not in cols:
             logger.info("Speed check skipped: field 'duration_seconds' not found.")
@@ -99,7 +109,9 @@ def check_speed(form_id: str, client_schema: str, engine):
 def check_gps(form_id: str, client_schema: str, engine):
     """Flags GPS coordinates that lie outside regional boundary constraints."""
     logger = get_run_logger()
-    table_name = f"{client_schema}.{form_id.replace('-', '_')}"
+    safe_schema = _safe_id(client_schema)
+    safe_form   = _safe_id(form_id)
+    table_name  = f"{safe_schema}.{safe_form}"
     
     boundaries = {
         "Lagos": [6.3, 6.7, 3.1, 3.6],
@@ -111,7 +123,7 @@ def check_gps(form_id: str, client_schema: str, engine):
         cols_query = text(
             "SELECT column_name FROM information_schema.columns WHERE table_schema=:s AND table_name=:t"
         )
-        cols = [r[0] for r in conn.execute(cols_query, {"s": client_schema, "t": form_id.replace('-', '_')}).fetchall()]
+        cols = [r[0] for r in conn.execute(cols_query, {"s": safe_schema, "t": safe_form}).fetchall()]
         
         if not all(col in cols for col in ['latitude', 'longitude', 'region']):
             logger.info("GPS boundaries check skipped: 'latitude', 'longitude', or 'region' columns are absent.")
@@ -165,13 +177,15 @@ def check_gps(form_id: str, client_schema: str, engine):
 def check_outliers(form_id: str, client_schema: str, engine):
     """Flags values exceeding a standard deviation Z-score threshold of 3."""
     logger = get_run_logger()
-    table_name = f"{client_schema}.{form_id.replace('-', '_')}"
+    safe_schema = _safe_id(client_schema)
+    safe_form   = _safe_id(form_id)
+    table_name  = f"{safe_schema}.{safe_form}"
     
     with engine.connect() as conn:
         cols_query = text(
             "SELECT column_name FROM information_schema.columns WHERE table_schema=:s AND table_name=:t"
         )
-        cols = [r[0] for r in conn.execute(cols_query, {"s": client_schema, "t": form_id.replace('-', '_')}).fetchall()]
+        cols = [r[0] for r in conn.execute(cols_query, {"s": safe_schema, "t": safe_form}).fetchall()]
         
         numeric_candidates = ['income', 'amount_spent', 'household_size', 'age']
         numeric_cols = [c for c in numeric_candidates if c in cols]
@@ -217,13 +231,15 @@ def check_outliers(form_id: str, client_schema: str, engine):
 def import_rejections(form_id: str, client_schema: str, engine):
     """Pulls native SurveyCTO 'rejected' records and catalogs them in qc_flags."""
     logger = get_run_logger()
-    table_name = f"{client_schema}.{form_id.replace('-', '_')}"
+    safe_schema = _safe_id(client_schema)
+    safe_form   = _safe_id(form_id)
+    table_name  = f"{safe_schema}.{safe_form}"
     
     with engine.connect() as conn:
         cols_query = text(
             "SELECT column_name FROM information_schema.columns WHERE table_schema=:s AND table_name=:t"
         )
-        cols = [r[0] for r in conn.execute(cols_query, {"s": client_schema, "t": form_id.replace('-', '_')}).fetchall()]
+        cols = [r[0] for r in conn.execute(cols_query, {"s": safe_schema, "t": safe_form}).fetchall()]
         
         if 'review_status' not in cols:
             return
@@ -232,13 +248,13 @@ def import_rejections(form_id: str, client_schema: str, engine):
         
         sql = f"""
             INSERT INTO qc_system.qc_flags (submission_uuid, client_schema, form_id, flag_type, severity, detail)
-            SELECT submission_uuid, :client_schema, :form_id, 'surveycto_rejected', 'high',
-                jsonb_build_object('review_status', review_status, 'source', 'SurveyCTO Review Console')
-            FROM {table_name}
-            WHERE review_status = 'rejected'
+            SELECT t.submission_uuid, :client_schema, :form_id, 'surveycto_rejected', 'high',
+                jsonb_build_object('review_status', t.review_status, 'source', 'SurveyCTO Review Console')
+            FROM {table_name} t
+            WHERE t.review_status = 'rejected'
               AND NOT EXISTS (
                   SELECT 1 FROM qc_system.qc_flags q
-                  WHERE q.submission_uuid = {table_name}.submission_uuid 
+                  WHERE q.submission_uuid = t.submission_uuid 
                     AND q.flag_type = 'surveycto_rejected'
               )
         """
@@ -256,7 +272,7 @@ def compute_scores(form_id: str, client_schema: str, engine):
 def run_qc(form_id: str, client_schema: str):
     """Primary entry point for automated survey data quality assessments."""
     logger = get_run_logger()
-    logger.info(f"🔍 Starting Quality Control assessment flow for {client_schema}.{form_id}")
+    logger.info(f"🔍 Starting Quality Control assessment flow for {client_schema}.{str(form_id)}")
     
     engine = create_engine(DB_URL)
     
@@ -279,5 +295,5 @@ if __name__ == "__main__":
         run_qc.serve(
             name="qc-engine-nightly",
             cron="30 1 * * *",
-            parameters={"form_id": "brand-tracker", "client_schema": "client_mtn"}
+            parameters={"form_id": "project_appraise", "client_schema": "client_mtn"}
         )

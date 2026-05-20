@@ -1,0 +1,16 @@
+[Unit]
+Description=Research Platform Prefect ETL Sync Worker
+After=rp-webhook.service
+
+[Service]
+Type=simple
+User=platform
+WorkingDirectory=/mnt/c/Users/msi/Documents/Data Warehouse Project/research-platform
+ExecStart=/usr/bin/python3 etl/pipelines/sync_surveycto.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

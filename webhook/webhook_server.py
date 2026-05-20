@@ -29,13 +29,13 @@ MINIO_ENDPOINT = "http://localhost:9000"
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASS = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
-DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@localhost:5432/{DB_NAME}"
+DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@localhost:5435/{DB_NAME}"
 
 app = FastAPI(title="Research Data Platform Webhook Gateway")
 engine = create_engine(DB_URL)
 
 FORM_SCHEMA_MAP = {
-    "brand-tracker": {"client": "client_mtn", "schema": "client_mtn"},
+    "project_appraise": {"client": "client_mtn", "schema": "client_mtn"},
     "unilever-retail": {"client": "client_unilever", "schema": "client_unilever"},
     "internal-census": {"client": "internal", "schema": "internal"}
 }
@@ -54,7 +54,7 @@ def write_to_dlq(form_id: str, client_schema: str, payload: Any, error_msg: str)
             conn.execute(
                 text("""
                     INSERT INTO qc_system.failed_payloads (form_id, client_schema, raw_payload, error_message, status)
-                    VALUES (:form_id, :schema, :payload::jsonb, :error_msg, 'pending')
+                    VALUES (:form_id, :schema, CAST(:payload AS jsonb), :error_msg, 'pending')
                 """),
                 {
                     "form_id": form_id,
@@ -87,13 +87,17 @@ def process_and_trigger(form_id: str, client: str, schema: str, payload: Dict[st
             Body=json.dumps(payload).encode('utf-8')
         )
         
-        import subprocess
+        import subprocess, re
         # Dynamically resolve ETL script absolute path
         root_dir = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
         etl_script_path = os.path.join(root_dir, "etl", "pipelines", "sync_surveycto.py")
         
-        cli_command = f"python3 \"{etl_script_path}\" {form_id} {client} {schema}"
-        subprocess.Popen(cli_command, shell=True)
+        # Sanitize all arguments to prevent injection (allow only alphanumeric, hyphens, underscores)
+        safe_form   = re.sub(r'[^a-zA-Z0-9_\-]', '', form_id)
+        safe_client = re.sub(r'[^a-zA-Z0-9_\-]', '', client)
+        safe_schema = re.sub(r'[^a-zA-Z0-9_\-]', '', schema)
+        
+        subprocess.Popen(["python3", etl_script_path, safe_form, safe_client, safe_schema])
         
     except Exception as e:
         print(f"Error executing webhook integration worker: {e}")

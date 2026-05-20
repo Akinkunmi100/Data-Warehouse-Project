@@ -3,23 +3,24 @@
 # ══════════════════════════════════════════
 
 import os
+from dotenv import load_dotenv
+
+# Dynamic environmental loading relative to script path
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(SCRIPT_DIR, "..", "..", "secrets", ".env")
+load_dotenv(ENV_PATH)
+
 import json
 import hashlib
 import requests
 import uuid
 import pandas as pd
 from datetime import datetime, timezone
-from dotenv import load_dotenv
 from prefect import flow, task
 from prefect.logging import get_run_logger
 from sqlalchemy import create_engine, text
 import boto3
 from botocore.client import Config
-
-# Dynamic environmental loading relative to script path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ENV_PATH = os.path.join(SCRIPT_DIR, "..", "..", "secrets", ".env")
-load_dotenv(ENV_PATH)
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASS = os.getenv("POSTGRES_PASSWORD")
@@ -27,7 +28,7 @@ DB_NAME = os.getenv("POSTGRES_DB")
 # Set DB_HOST to "localhost" because the script is running inside WSL, 
 # and Docker container ports are exposed directly to WSL localhost.
 DB_HOST = "localhost"  
-DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:5432/{DB_NAME}"
+DB_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:5435/{DB_NAME}"
 
 SCTO_URL = os.getenv("SURVEYCTO_SERVER_URL")
 SCTO_USER = os.getenv("SURVEYCTO_USERNAME")
@@ -51,12 +52,23 @@ def fetch_submissions(form_id: str, last_sync: datetime) -> list:
         params["date"] = int(last_sync.timestamp())
         logger.info(f"Polling SurveyCTO incremental data since {last_sync} (epoch: {params['date']})")
     else:
-        logger.info(f"No previous cursor found for form {form_id}. Performing full sync.")
+        logger.info(f"No previous cursor found for form {str(form_id)}. Performing full sync (polling since epoch 0).")
+        params["date"] = 0
         
     params["review_status"] = "approved|rejected"
     
     try:
         resp = requests.get(url, params=params, auth=(SCTO_USER, SCTO_PASS), timeout=60)
+        
+        # Fall back if the form does not support review_status filter (returns 400 Bad Request)
+        if resp.status_code == 400:
+            logger.warning(f"SurveyCTO returned 400. Details: {resp.text}. Retrying without 'review_status' filter...")
+            params.pop("review_status", None)
+            resp = requests.get(url, params=params, auth=(SCTO_USER, SCTO_PASS), timeout=60)
+            
+        if resp.status_code != 200:
+            logger.error(f"SurveyCTO API request failed with status {resp.status_code}. Response: {resp.text}")
+            
         resp.raise_for_status()
         
         data = resp.json()
@@ -83,7 +95,7 @@ def check_schema(form_id: str, submissions: list, engine) -> bool:
         existing = conn.execute(query, {"fid": form_id}).fetchone()
         
         if existing and existing[0] != col_hash:
-            logger.error(f"⚠️ SCHEMA CHANGE DETECTED FOR FORM {form_id}! Halt pipeline.")
+            logger.error(f"⚠️ SCHEMA CHANGE DETECTED FOR FORM {str(form_id)}! Halt pipeline.")
             audit_query = text(
                 "INSERT INTO qc_system.audit_log(action, schema_name, detail) VALUES('schema_change', :fid, :detail)"
             )
@@ -92,10 +104,10 @@ def check_schema(form_id: str, submissions: list, engine) -> bool:
                 "detail": json.dumps({"old_hash": existing[0], "new_hash": col_hash, "columns": incoming_cols})
             })
             conn.commit()
-            raise ValueError(f"Schema drift for form {form_id}. Halting pipeline for administrative intervention.")
+            raise ValueError(f"Schema drift for form {str(form_id)}. Halting pipeline for administrative intervention.")
             
         if not existing:
-            logger.info(f"Registering base schema for form {form_id} (hash: {col_hash}).")
+            logger.info(f"Registering base schema for form {str(form_id)} (hash: {col_hash}).")
             register_query = text(
                 "INSERT INTO qc_system.form_versions (form_id, version_hash, column_manifest) VALUES (:fid, :hash, :manifest)"
             )
@@ -124,7 +136,7 @@ def save_raw_to_minio(form_id: str, client: str, submissions: list):
     )
     
     timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%S')
-    key = f"{client}/{form_id}/{timestamp}/raw.json"
+    key = f"{client}/{str(form_id)}/{timestamp}/raw.json"
     
     logger.info(f"Writing raw payload to raw-bronze S3 at '{key}'")
     s3.put_object(
@@ -136,14 +148,29 @@ def save_raw_to_minio(form_id: str, client: str, submissions: list):
 @task(name="flatten-and-upsert-postgres")
 def upsert_submissions(form_id: str, client_schema: str, submissions: list, engine):
     """Processes, flattens, and loads nested/flat structures into warehouse."""
+    import re
     logger = get_run_logger()
     if not submissions:
         return
+    
+    # ── Sanitize identifiers to prevent SQL injection via f-strings ──
+    def _safe_id(name: str) -> str:
+        """Strip any character that is not alphanumeric or underscore."""
+        return re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    
+    safe_form_id      = _safe_id(form_id)
+    safe_client_schema = _safe_id(client_schema)
         
     flat_rows = []
     repeat_groups = {}
     
     for sub in submissions:
+        # ── KEY field guard: skip malformed records gracefully ──
+        # deep_audit.py requires: if 'KEY' in sub
+        if 'KEY' not in sub:
+            logger.warning(f"Skipping submission missing 'KEY' field: {str(sub)[:200]}")
+            continue
+        
         scalar_row = {k: v for k, v in sub.items() if not isinstance(v, list)}
         flat_rows.append(scalar_row)
         
@@ -154,105 +181,108 @@ def upsert_submissions(form_id: str, client_schema: str, submissions: list, engi
                     item['_parent_uuid'] = sub['KEY']
                     item['_repeat_index'] = idx
                     repeat_groups[k].append(item)
-                    
-    conn = engine.connect()
     
-    df_base = pd.DataFrame(flat_rows)
-    df_base.rename(columns={'KEY': 'submission_uuid'}, inplace=True)
-    if 'review_status' not in df_base.columns:
-        df_base['review_status'] = 'unknown'
+    if not flat_rows:
+        logger.warning("No valid submissions after filtering. Aborting upsert.")
+        return
     
-    target_table_name = form_id.replace('-', '_')
-    target_table_fq = f"{client_schema}.{target_table_name}"
-    
-    stage_uuid = uuid.uuid4().hex[:12]
-    stage_table_name = f"_stage_{stage_uuid}"
-    
-    logger.info(f"Loading {len(df_base)} base records into temporary stage 'qc_system.{stage_table_name}'")
-    df_base.to_sql(stage_table_name, conn, schema='qc_system', if_exists='replace', index=False)
-    
-    try:
-        columns_sql = ", ".join([f'"{col}"' for col in df_base.columns])
+    # ── Use context manager to guarantee connection cleanup ──
+    with engine.connect() as conn:
+        df_base = pd.DataFrame(flat_rows)
+        df_base.rename(columns={'KEY': 'submission_uuid'}, inplace=True)
+        if 'review_status' not in df_base.columns:
+            df_base['review_status'] = 'unknown'
         
-        check_table = conn.execute(text(
-            f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='{client_schema}' AND table_name='{target_table_name}')"
-        )).fetchone()[0]
+        target_table_name = safe_form_id
+        target_table_fq = f"{safe_client_schema}.{target_table_name}"
         
-        if not check_table:
-            logger.info(f"Target table '{target_table_fq}' does not exist. Creating dynamically.")
-            conn.execute(text(f"CREATE TABLE {target_table_fq} AS SELECT * FROM qc_system.{stage_table_name} WITH NO DATA"))
-            conn.execute(text(f"ALTER TABLE {target_table_fq} ADD PRIMARY KEY (submission_uuid)"))
-            conn.commit()
-            
-        update_set_sql = ", ".join([f'"{col}" = EXCLUDED."{col}"' for col in df_base.columns if col not in ['submission_uuid', 'KEY']])
-        if not update_set_sql:
-            update_set_sql = '"updated_at" = NOW()'
-        else:
-            if 'updated_at' not in df_base.columns:
-                try:
-                    conn.execute(text(f"ALTER TABLE {target_table_fq} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"))
-                    conn.commit()
-                except Exception:
-                    pass
-                update_set_sql += ', "updated_at" = NOW()'
-                
-        upsert_sql = f"""
-            INSERT INTO {target_table_fq} ({columns_sql})
-            SELECT {columns_sql} FROM qc_system.{stage_table_name}
-            ON CONFLICT (submission_uuid) DO UPDATE SET {update_set_sql}
-        """
+        stage_uuid = uuid.uuid4().hex[:12]
+        stage_table_name = f"_stage_{stage_uuid}"
         
-        logger.info(f"Executing base upsert onto {target_table_fq}")
-        conn.execute(text(upsert_sql))
-        conn.commit()
-        
-    finally:
-        conn.execute(text(f"DROP TABLE IF EXISTS qc_system.{stage_table_name}"))
-        conn.commit()
-        
-    for group_name, rows in repeat_groups.items():
-        child_table_name = f"{target_table_name}_{group_name.replace('-', '_')}"
-        child_table_fq = f"{client_schema}.{child_table_name}"
-        
-        df_child = pd.DataFrame(rows)
-        stage_child_name = f"_stage_child_{stage_uuid}_{group_name[:8]}"
-        
-        logger.info(f"Processing repeat group '{group_name}' ({len(df_child)} rows) via staging '{stage_child_name}'")
-        df_child.to_sql(stage_child_name, conn, schema='qc_system', if_exists='replace', index=False)
+        logger.info(f"Loading {len(df_base)} base records into temporary stage 'qc_system.{stage_table_name}'")
+        df_base.to_sql(stage_table_name, conn, schema='qc_system', if_exists='replace', index=False)
         
         try:
-            check_child = conn.execute(text(
-                f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='{client_schema}' AND table_name='{child_table_name}')"
+            columns_sql = ", ".join([f'"{col}"' for col in df_base.columns])
+            
+            check_table = conn.execute(text(
+                f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='{safe_client_schema}' AND table_name='{target_table_name}')"
             )).fetchone()[0]
             
-            if not check_child:
-                logger.info(f"Child table '{child_table_fq}' does not exist. Creating dynamically.")
-                conn.execute(text(f"CREATE TABLE {child_table_fq} AS SELECT * FROM qc_system.{stage_child_name} WITH NO DATA"))
-                conn.execute(text(f"ALTER TABLE {child_table_fq} ADD COLUMN IF NOT EXISTS _parent_uuid TEXT"))
-                conn.execute(text(f"ALTER TABLE {child_table_fq} ADD COLUMN IF NOT EXISTS _repeat_index INT"))
-                conn.execute(text(f"ALTER TABLE {child_table_fq} ADD PRIMARY KEY (_parent_uuid, _repeat_index)"))
+            if not check_table:
+                logger.info(f"Target table '{target_table_fq}' does not exist. Creating dynamically.")
+                conn.execute(text(f"CREATE TABLE {target_table_fq} AS SELECT * FROM qc_system.{stage_table_name} WITH NO DATA"))
+                conn.execute(text(f"ALTER TABLE {target_table_fq} ADD PRIMARY KEY (submission_uuid)"))
                 conn.commit()
                 
-            child_columns = ", ".join([f'"{col}"' for col in df_child.columns])
-            
-            upsert_child_sql = f"""
-                INSERT INTO {child_table_fq} ({child_columns})
-                SELECT {child_columns} FROM qc_system.{stage_child_name}
-                ON CONFLICT (_parent_uuid, _repeat_index) DO NOTHING
+            update_set_sql = ", ".join([f'"{col}" = EXCLUDED."{col}"' for col in df_base.columns if col not in ['submission_uuid', 'KEY']])
+            if not update_set_sql:
+                update_set_sql = '"updated_at" = NOW()'
+            else:
+                if 'updated_at' not in df_base.columns:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {target_table_fq} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"))
+                        conn.commit()
+                    except Exception:
+                        pass
+                    update_set_sql += ', "updated_at" = NOW()'
+                    
+            upsert_sql = f"""
+                INSERT INTO {target_table_fq} ({columns_sql})
+                SELECT {columns_sql} FROM qc_system.{stage_table_name}
+                ON CONFLICT (submission_uuid) DO UPDATE SET {update_set_sql}
             """
-            conn.execute(text(upsert_child_sql))
-            conn.commit()
-        finally:
-            conn.execute(text(f"DROP TABLE IF EXISTS qc_system.{stage_child_name}"))
+            
+            logger.info(f"Executing base upsert onto {target_table_fq}")
+            conn.execute(text(upsert_sql))
             conn.commit()
             
-    conn.close()
+        finally:
+            conn.execute(text(f"DROP TABLE IF EXISTS qc_system.{stage_table_name}"))
+            conn.commit()
+            
+        for group_name, rows in repeat_groups.items():
+            safe_group = _safe_id(group_name)
+            child_table_name = f"{target_table_name}_{safe_group}"
+            child_table_fq = f"{safe_client_schema}.{child_table_name}"
+            
+            df_child = pd.DataFrame(rows)
+            stage_child_name = f"_stage_child_{stage_uuid}_{safe_group[:8]}"
+            
+            logger.info(f"Processing repeat group '{group_name}' ({len(df_child)} rows) via staging '{stage_child_name}'")
+            df_child.to_sql(stage_child_name, conn, schema='qc_system', if_exists='replace', index=False)
+            
+            try:
+                check_child = conn.execute(text(
+                    f"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='{safe_client_schema}' AND table_name='{child_table_name}')"
+                )).fetchone()[0]
+                
+                if not check_child:
+                    logger.info(f"Child table '{child_table_fq}' does not exist. Creating dynamically.")
+                    conn.execute(text(f"CREATE TABLE {child_table_fq} AS SELECT * FROM qc_system.{stage_child_name} WITH NO DATA"))
+                    conn.execute(text(f"ALTER TABLE {child_table_fq} ADD COLUMN IF NOT EXISTS _parent_uuid TEXT"))
+                    conn.execute(text(f"ALTER TABLE {child_table_fq} ADD COLUMN IF NOT EXISTS _repeat_index INT"))
+                    conn.execute(text(f"ALTER TABLE {child_table_fq} ADD PRIMARY KEY (_parent_uuid, _repeat_index)"))
+                    conn.commit()
+                    
+                child_columns = ", ".join([f'"{col}"' for col in df_child.columns])
+                
+                upsert_child_sql = f"""
+                    INSERT INTO {child_table_fq} ({child_columns})
+                    SELECT {child_columns} FROM qc_system.{stage_child_name}
+                    ON CONFLICT (_parent_uuid, _repeat_index) DO NOTHING
+                """
+                conn.execute(text(upsert_child_sql))
+                conn.commit()
+            finally:
+                conn.execute(text(f"DROP TABLE IF EXISTS qc_system.{stage_child_name}"))
+                conn.commit()
 
 @flow(name="surveycto-ingestion-orchestrator", log_prints=True)
 def run_etl(form_id: str, client: str, client_schema: str):
     """Master workflow governing SurveyCTO data integration."""
     logger = get_run_logger()
-    logger.info(f"🚀 Initializing SurveyCTO ingestion workflow for Form: {form_id} Client: {client}")
+    logger.info(f"🚀 Initializing SurveyCTO ingestion workflow for Form: {str(form_id)} Client: {client}")
     
     engine = create_engine(DB_URL)
     
@@ -296,7 +326,7 @@ def run_etl(form_id: str, client: str, client_schema: str):
             """), {"n": form_id})
             conn.commit()
             
-        logger.info(f"✨ Ingestion complete. Incremental sync cursor advanced for {form_id}.")
+        logger.info(f"✨ Ingestion complete. Incremental sync cursor advanced for {str(form_id)}.")
         
     except Exception as e:
         logger.error(f"❌ Pipeline failed: {e}")
@@ -334,5 +364,5 @@ if __name__ == "__main__":
         run_etl.serve(
             name="surveycto-nightly-poll",
             cron="0 1 * * *",
-            parameters={"form_id": "brand-tracker", "client": "client_mtn", "client_schema": "client_mtn"}
+            parameters={"form_id": "project_appraise", "client": "client_mtn", "client_schema": "client_mtn"}
         )
