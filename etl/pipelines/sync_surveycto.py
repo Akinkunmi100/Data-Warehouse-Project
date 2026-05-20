@@ -159,7 +159,8 @@ def upsert_submissions(form_id: str, client_schema: str, submissions: list, engi
     
     df_base = pd.DataFrame(flat_rows)
     df_base.rename(columns={'KEY': 'submission_uuid'}, inplace=True)
-    df_base['review_status'] = df_base.get('review_status', 'unknown')
+    if 'review_status' not in df_base.columns:
+        df_base['review_status'] = 'unknown'
     
     target_table_name = form_id.replace('-', '_')
     target_table_fq = f"{client_schema}.{target_table_name}"
@@ -168,7 +169,7 @@ def upsert_submissions(form_id: str, client_schema: str, submissions: list, engi
     stage_table_name = f"_stage_{stage_uuid}"
     
     logger.info(f"Loading {len(df_base)} base records into temporary stage 'qc_system.{stage_table_name}'")
-    df_base.to_sql(stage_table_name, engine, schema='qc_system', if_exists='replace', index=False)
+    df_base.to_sql(stage_table_name, conn, schema='qc_system', if_exists='replace', index=False)
     
     try:
         columns_sql = ", ".join([f'"{col}"' for col in df_base.columns])
@@ -217,7 +218,7 @@ def upsert_submissions(form_id: str, client_schema: str, submissions: list, engi
         stage_child_name = f"_stage_child_{stage_uuid}_{group_name[:8]}"
         
         logger.info(f"Processing repeat group '{group_name}' ({len(df_child)} rows) via staging '{stage_child_name}'")
-        df_child.to_sql(stage_child_name, engine, schema='qc_system', if_exists='replace', index=False)
+        df_child.to_sql(stage_child_name, conn, schema='qc_system', if_exists='replace', index=False)
         
         try:
             check_child = conn.execute(text(

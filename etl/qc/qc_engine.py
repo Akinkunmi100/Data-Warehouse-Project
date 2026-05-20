@@ -136,8 +136,11 @@ def check_gps(form_id: str, client_schema: str, engine):
             if not (min_lat <= float(lat) <= max_lat) or not (min_lon <= float(lon) <= max_lon):
                 flag_sql = """
                     INSERT INTO qc_system.qc_flags (submission_uuid, client_schema, form_id, flag_type, severity, detail)
-                    VALUES (:uuid, :schema, :fid, 'gps_out_of_region', 'high', :detail)
-                    ON CONFLICT DO NOTHING
+                    SELECT :uuid, :schema, :fid, 'gps_out_of_region', 'high', :detail::jsonb
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM qc_system.qc_flags 
+                        WHERE submission_uuid = :uuid AND flag_type = 'gps_out_of_region'
+                    )
                 """
                 detail = json.dumps({
                     "region": reg, 
