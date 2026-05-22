@@ -2,7 +2,10 @@
 # ══════════════════════════════════════════
 # Research Data Platform — Daily Backup & Cloud Archival
 # ══════════════════════════════════════════
-# Cron: 0 4 * * * /path/to/scripts/backup_r2.sh >> /path/to/backup/backup.log 2>&1
+# Cron: 0 2 * * * /path/to/scripts/backup_r2.sh >> /path/to/backup/backup.log 2>&1
+#
+# Schedule: 2am daily. ETL nightly poll runs at 1am — 1 hour gap avoids
+# a backup starting mid-write. Do NOT change this to 1am or 4am.
 #
 # FIX (was broken): MinIO data lives in Docker named volume 'rp-minio-data',
 # NOT in ./minio-data/ on disk. We now export it via a temporary Alpine container.
