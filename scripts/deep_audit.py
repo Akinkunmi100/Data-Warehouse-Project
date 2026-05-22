@@ -4,7 +4,7 @@ Research Data Platform — Deep Requirements & Quality Audit
 Checks: DB privileges, file permissions, missing components, security posture,
 backup integrity, docker health, code quality, and process requirements.
 """
-import os, sys, json, subprocess, stat, re, textwrap
+import os, sys, json, subprocess, stat, re, textwrap, shutil
 from dotenv import load_dotenv
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -230,7 +230,7 @@ def check_bucket_versioning():
             s3.get_bucket_versioning(Bucket=bucket)
         except Exception as e:
             issues.append(f"{bucket}: {e}")
-    return ("WARN", f"Cannot check versioning (MinIO free tier): consider enabling for raw-bronze immutability") if not issues else ("FAIL", str(issues))
+    return ("INFO", f"Cannot check versioning (MinIO free tier): consider enabling for raw-bronze immutability") if not issues else ("FAIL", str(issues))
 check("MinIO: Bucket versioning check", check_bucket_versioning, "minio")
 
 def check_raw_bronze_immutability():
@@ -263,7 +263,7 @@ print("E. DOCKER CONFIGURATION DEEP AUDIT")
 print("="*65)
 
 compose_path = os.path.join(PROJECT_DIR, "docker-compose.yml")
-compose_text = open(compose_path).read()
+compose_text = open(compose_path, encoding='utf-8').read()
 
 def check_compose_restart_policies():
     services = ['postgres', 'minio', 'prefect']
@@ -315,9 +315,9 @@ etl_path     = os.path.join(PROJECT_DIR, "etl/pipelines/sync_surveycto.py")
 qc_path      = os.path.join(PROJECT_DIR, "etl/qc/qc_engine.py")
 webhook_path = os.path.join(PROJECT_DIR, "webhook/webhook_server.py")
 
-etl_code     = open(etl_path).read()
-qc_code      = open(qc_path).read()
-webhook_code = open(webhook_path).read()
+etl_code     = open(etl_path, encoding='utf-8').read()
+qc_code      = open(qc_path, encoding='utf-8').read()
+webhook_code = open(webhook_path, encoding='utf-8').read()
 
 # Check: ETL uses engine.connect context manager in all DB calls (prevents connection leaks)
 def check_connection_lifecycle():
@@ -342,7 +342,7 @@ check("Code: SQL injection surface (f-strings)", check_sql_injection, "code")
 
 # Check: ETL key extraction — assumes 'KEY' always present but no guard
 def check_etl_key_guard():
-    if "sub['KEY']" in etl_code and "if 'KEY' in sub" not in etl_code:
+    if "sub['KEY']" in etl_code and ("if 'KEY' in sub" not in etl_code and "if 'KEY' not in sub" not in etl_code):
         return "WARN", "ETL accesses sub['KEY'] without checking key exists — will raise KeyError on malformed records"
     return "PASS", "ETL has proper KEY field guard"
 check("Code/ETL: KEY field guard", check_etl_key_guard, "code")
@@ -366,13 +366,12 @@ check("Code/Webhook: form_id allowlist validation", check_webhook_form_id_valida
 
 # Check: backup script has pg_dump available
 def check_backup_deps():
-    result = subprocess.run(["which", "pg_dump"], capture_output=True, text=True)
-    # pg_dump runs inside WSL
-    result2 = subprocess.run(["which", "aws"], capture_output=True, text=True)
+    pg_dump_exists = shutil.which("pg_dump") is not None
+    aws_exists = shutil.which("aws") is not None
     issues = []
-    if not result.stdout.strip():
+    if not pg_dump_exists:
         issues.append("pg_dump not found in PATH — backup will fail")
-    if not result2.stdout.strip():
+    if not aws_exists:
         issues.append("aws CLI not found — R2 uploads will fail")
     return ("WARN", f"Missing tools: {issues}") if issues else ("PASS", "pg_dump and aws CLI available")
 check("Backup: Required CLI tools available", check_backup_deps, "code")

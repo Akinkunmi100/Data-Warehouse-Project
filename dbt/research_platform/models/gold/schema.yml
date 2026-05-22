@@ -1,0 +1,64 @@
+version: 2
+
+models:
+  # ── Gold layer ──────────────────────────────────────────────────────────────
+  - name: fct_mtn_survey_responses
+    description: "One row per MTN submission — cast time fields, duration in minutes."
+    columns:
+      - name: submission_uuid
+        tests:
+          - not_null
+          - unique
+      - name: is_approved
+        tests:
+          - not_null
+
+  - name: agg_mtn_daily_submissions
+    description: "Daily aggregates for the Metabase submissions dashboard."
+    columns:
+      - name: submission_date
+        tests:
+          - not_null
+          - unique
+
+  - name: enumerator_scorecard
+    description: "Per-enumerator quality scores and rankings for the leaderboard."
+    columns:
+      - name: enumerator_id
+        tests:
+          - not_null
+      - name: quality_score
+        tests:
+          - not_null
+
+  - name: qc_flag_summary
+    description: "Daily flag aggregates by form, flag type, and severity."
+    columns:
+      - name: flag_date
+        tests:
+          - not_null
+      - name: flag_count
+        tests:
+          - not_null
+
+  - name: pipeline_health
+    description: "SLA breach flags for the platform health dashboard."
+    columns:
+      - name: pipeline_name
+        tests:
+          - not_null
+          - unique
+
+  - name: regional_performance
+    description: "Submission rates and quality metrics aggregated by region."
+    columns:
+      - name: region_name
+        tests:
+          - not_null
+
+  - name: brand_tracker
+    description: "Brand tracking survey aggregates for client PDF reports."
+    columns:
+      - name: form_id
+        tests:
+          - not_null

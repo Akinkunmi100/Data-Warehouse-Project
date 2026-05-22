@@ -1,0 +1,25 @@
+research_platform:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      threads: 4
+      host: localhost
+      port: 5435
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      # FIX Bug 5: was schema: "" (empty string) which some dbt versions reject.
+      # The generate_schema_name macro in macros/ ignores this value for any model
+      # that has a custom +schema (bronze / silver / gold), so this only applies to
+      # models without a custom schema. "warehouse" is a safe, meaningful default.
+      schema: warehouse
+    prod:
+      type: postgres
+      threads: 8
+      host: localhost
+      port: 5435
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      schema: warehouse

@@ -5,7 +5,9 @@ Description=Research Platform Webhook Gateway
 Type=simple
 User=platform
 WorkingDirectory=/mnt/c/Users/msi/Documents/Data Warehouse Project/research-platform
-ExecStart=/usr/bin/python3 -m uvicorn webhook.webhook_server:app --host 0.0.0.0 --port 8001
+# FIX: use user-local python3 / uvicorn so all pip-installed packages are found.
+ExecStart=/home/platform/.local/bin/uvicorn webhook.webhook_server:app --host 0.0.0.0 --port 8001
+Environment=PYTHONPATH=/home/platform/.local/lib/python3.12/site-packages
 Restart=always
 RestartSec=5
 StandardOutput=journal

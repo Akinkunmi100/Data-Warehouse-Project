@@ -34,6 +34,33 @@ services:
     env_file: ./secrets/.env
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+    # On a fresh volume Superset's metadata DB is uninitialized — the UI will
+    # error out immediately without this init sequence. db upgrade is idempotent
+    # so re-running on an existing volume is safe. The admin credentials here
+    # are first-time bootstrap only; change them via the UI after first login.
+    #
+    # Shell note: create-admin is wrapped in a subshell ( ... ) so that the
+    # || true only guards THAT step. Without the subshell, shell left-associativity
+    # would cause || true to also mask a failing db upgrade, letting gunicorn
+    # start on a broken metadata database.
+    command: >
+      sh -c "
+        set -e &&
+        superset db upgrade &&
+        ( superset fab create-admin
+            --username admin
+            --firstname Admin
+            --lastname Admin
+            --email admin@research-platform.local
+            --password ${SUPERSET_ADMIN_PASSWORD:-admin}
+            2>/dev/null || true ) &&
+        superset init &&
+        gunicorn
+          --bind 0.0.0.0:8088
+          --workers 2
+          --timeout 120
+          'superset.app:create_app()'
+      "
     ports: ["8088:8088"]
 
 networks:

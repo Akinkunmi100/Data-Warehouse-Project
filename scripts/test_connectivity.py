@@ -129,12 +129,13 @@ if engine:
                 "WHERE table_schema='qc_system' ORDER BY table_name"
             )).fetchall()
             found = [r[0] for r in rows]
-            expected = ['alert_suppression', 'audit_log', 'failed_payloads', 
-                        'form_versions', 'pipeline_sla', 'qc_flags', 'sync_state']
+            expected = ['alert_suppression', 'audit_log', 'enumerator_scores',
+                        'failed_payloads', 'form_versions', 'gps_boundaries',
+                        'pipeline_sla', 'qc_flags', 'sync_state']
             missing = [t for t in expected if t not in found]
             if missing:
                 return False, f"Missing tables: {missing}"
-            return True, f"All 7 system tables present"
+            return True, f"All 9 system tables present"
     test("DB: System tables (qc_system)", check_tables)
 
     # Check SLA seed data
@@ -294,12 +295,6 @@ webhook_path = os.path.join(PROJECT_DIR, "webhook", "webhook_server.py")
 with open(webhook_path, 'r') as f:
     webhook_code = f.read()
 
-def check_hmac_bug():
-    if "hmac.new(" in webhook_code:
-        return False, "BUG: Uses hmac.new() — should be hmac.new() [Python has hmac.new, correct]"
-    return True, "hmac usage is correct"
-
-# Actually check: Python's hmac module has hmac.new() which IS correct
 def check_hmac_usage():
     if "hmac.new(" in webhook_code:
         return True, "Uses hmac.new() correctly"
@@ -323,15 +318,20 @@ backup_path = os.path.join(PROJECT_DIR, "scripts", "backup_r2.sh")
 with open(backup_path, 'r') as f:
     backup_code = f.read()
 
-def check_backup_minio_dir():
-    if "minio-data" in backup_code:
-        # But we use Docker named volumes, so minio-data/ directory won't exist on host
-        minio_dir = os.path.join(PROJECT_DIR, "minio-data")
-        if not os.path.isdir(minio_dir):
-            return False, "BUG: Script archives minio-data/ but we use Docker named volumes — directory won't exist"
-        return True, "minio-data directory exists"
-    return True, "No minio-data reference"
-test("Code: backup_r2.sh minio-data path", check_backup_minio_dir)
+def check_backup_minio_volume():
+    # FIX: old check looked for the string 'minio-data' and then checked whether
+    # a ./minio-data/ bind-mount directory existed on disk.  It always reported
+    # FAIL because we deliberately use a Docker named volume (rp-minio-data), so
+    # no bind-mount directory should exist.  The check was inverted.
+    #
+    # Correct assertion: the backup script must use `docker run -v rp-minio-data`
+    # (named volume export) rather than a direct directory path.
+    if "docker run" in backup_code and "rp-minio-data" in backup_code:
+        return True, "backup_r2.sh correctly exports via Docker named volume (rp-minio-data)"
+    if "minio-data/" in backup_code and "docker run" not in backup_code:
+        return False, "backup_r2.sh archives a bind-mount path that won't exist — should use Docker named volume export"
+    return True, "MinIO backup approach looks correct"
+test("Code: backup_r2.sh minio volume export", check_backup_minio_volume)
 
 # Check docker-compose.bi.yml Metabase networking
 bi_path = os.path.join(PROJECT_DIR, "docker-compose.bi.yml")

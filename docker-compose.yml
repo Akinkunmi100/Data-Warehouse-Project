@@ -14,7 +14,10 @@ services:
     env_file: ./secrets/.env
     volumes:
       - rp-postgres-data:/var/lib/postgresql/data
+      # 01: DDL — schemas, tables, roles (no hardcoded passwords)
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      # 02: Passwords — applied from secrets/.env env vars
+      - ./scripts/init_users.sh:/docker-entrypoint-initdb.d/02_init_users.sh:ro
     ports: ["5435:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U platform_admin -d warehouse"]
@@ -22,21 +25,15 @@ services:
       timeout: 5s
       retries: 5
 
-  # Metabase needs its OWN database — never share with warehouse
+  # Metabase needs its OWN separate database — uses dedicated init script
   metabase-db-init:
     image: postgres:16-alpine
     container_name: rp-metabase-db-init
     restart: "no"
     env_file: ./secrets/.env
-    entrypoint: >
-      sh -c "sleep 8 &&
-      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
-      -c \"CREATE DATABASE $${METABASE_DB_NAME}\" 2>/dev/null || true &&
-      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
-      -c \"CREATE USER $${METABASE_DB_USER} WITH PASSWORD '$${METABASE_DB_PASSWORD}'\" 2>/dev/null || true &&
-      PGPASSWORD=$${POSTGRES_PASSWORD} psql -h postgres -U $${POSTGRES_USER} -d $${POSTGRES_DB}
-      -c \"GRANT ALL ON DATABASE $${METABASE_DB_NAME} TO $${METABASE_DB_USER}\" 2>/dev/null || true &&
-      echo 'Metabase DB init complete'"
+    volumes:
+      - ./scripts/metabase_init.sh:/metabase_init.sh:ro
+    entrypoint: ["sh", "/metabase_init.sh"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,7 +62,8 @@ services:
     command: prefect server start
     environment:
       PREFECT_SERVER_API_HOST: "0.0.0.0"
-      PREFECT_API_URL: http://localhost:4200/api
+      # Inside the container localhost reaches the Prefect server itself — correct
+      PREFECT_API_URL: "http://localhost:4200/api"
     volumes:
       - ./prefect:/root/.prefect
     ports: ["4200:4200"]

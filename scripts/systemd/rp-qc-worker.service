@@ -6,7 +6,9 @@ After=rp-webhook.service rp-etl-worker.service
 Type=simple
 User=platform
 WorkingDirectory=/mnt/c/Users/msi/Documents/Data Warehouse Project/research-platform
-ExecStart=/usr/bin/python3 etl/qc/qc_engine.py
+# FIX: same as rp-etl-worker — user-local python3 so user site-packages are found.
+ExecStart=/home/platform/.local/bin/python3 etl/qc/qc_engine.py
+Environment=PYTHONPATH=/home/platform/.local/lib/python3.12/site-packages
 Restart=always
 RestartSec=10
 StandardOutput=journal

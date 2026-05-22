@@ -6,7 +6,11 @@ After=rp-webhook.service
 Type=simple
 User=platform
 WorkingDirectory=/mnt/c/Users/msi/Documents/Data Warehouse Project/research-platform
-ExecStart=/usr/bin/python3 etl/pipelines/sync_surveycto.py
+# FIX: /usr/bin/python3 runs in a non-login shell and cannot find packages installed
+# with pip3 --break-system-packages (they live in /home/platform/.local/lib/).
+# Using the user-local python3 binary ensures the correct site-packages are on sys.path.
+ExecStart=/home/platform/.local/bin/python3 etl/pipelines/sync_surveycto.py
+Environment=PYTHONPATH=/home/platform/.local/lib/python3.12/site-packages
 Restart=always
 RestartSec=10
 StandardOutput=journal

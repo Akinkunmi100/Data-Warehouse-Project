@@ -22,11 +22,11 @@ restart:
 
 # ── BI Services (on-demand) ──
 metabase:
-	docker compose -f docker-compose.bi.yml up metabase -d
+	docker compose --env-file secrets/.env -f docker-compose.bi.yml up metabase -d
 	@echo "✅ Metabase started on http://localhost:3030"
 
 superset:
-	docker compose -f docker-compose.bi.yml up superset -d
+	docker compose --env-file secrets/.env -f docker-compose.bi.yml up superset -d
 	@echo "✅ Superset started on http://localhost:8088"
 
 bi-stop:

@@ -1,0 +1,61 @@
+version: 2
+
+sources:
+  - name: client_mtn
+    description: "Raw SurveyCTO submissions for MTN project_appraise — upserted by the ETL pipeline."
+    schema: client_mtn
+    tables:
+      - name: project_appraise
+        description: "Main survey table for the MTN project appraisal form."
+        columns:
+          - name: submission_uuid
+            description: "Primary key — SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status (approved / rejected / unknown)."
+          - name: updated_at
+            description: "Timestamp of the last upsert."
+
+  - name: client_unilever
+    description: "Raw SurveyCTO submissions for the Unilever retail form."
+    schema: client_unilever
+    tables:
+      - name: unilever_retail
+        description: "Main survey table for the Unilever retail census form."
+        columns:
+          - name: submission_uuid
+            description: "Primary key — SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last upsert."
+
+  - name: internal
+    description: "Raw SurveyCTO submissions for the internal census form."
+    schema: internal
+    tables:
+      - name: internal_census
+        description: "Main survey table for the internal census form."
+        columns:
+          - name: submission_uuid
+            description: "Primary key — SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last upsert."
+
+  - name: qc_system
+    description: "Platform metadata, QC flags, audit logs, and SLA trackers."
+    schema: qc_system
+    tables:
+      - name: qc_flags
+        description: "All QC flags raised by the quality control engine."
+      - name: sync_state
+        description: "Incremental sync cursor for each ETL pipeline."
+      - name: pipeline_sla
+        description: "Expected cadence and max-lag config per pipeline."
+      - name: enumerator_scores
+        description: "Per-enumerator quality scorecards computed by qc_engine."
+      - name: audit_log
+        description: "NDPR compliance access and system event audit trail."
+      - name: gps_boundaries
+        description: "Regional GPS bounding boxes used by the QC engine."

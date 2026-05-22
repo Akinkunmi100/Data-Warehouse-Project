@@ -22,3 +22,13 @@ requests>=2.31
 
 # Security
 cryptography>=41.0
+
+# Data Transformation
+dbt-core>=1.8
+dbt-postgres>=1.8
+
+# File Watcher (etl/pipelines/file_watcher.py)
+watchdog>=3.0
+
+# SPSS / SAV file reading (file_watcher.py _read_file)
+pyreadstat>=1.2

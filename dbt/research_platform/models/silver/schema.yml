@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: int_mtn_project_appraise
+    description: "MTN Survey Project Appraise submissions intermediate model (cleansed)"
+    columns:
+      - name: submission_uuid
+        description: "Primary key / unique identifier of the submission."
+        tests:
+          - unique
+          - not_null
+      - name: review_status_clean
+        description: "Lowercased review status, coerced to NULL if outside approved or rejected."
+      - name: is_approved
+        description: "Boolean flag representing if the submission has been approved."
+      - name: is_rejected
+        description: "Boolean flag representing if the submission has been rejected."
+
+  - name: int_unilever_retail
+    description: "Unilever retail census intermediate model (cleansed)"
+    columns:
+      - name: submission_uuid
+        description: "Primary key / unique identifier of the submission."
+        tests:
+          - unique
+          - not_null
+      - name: review_status_clean
+        description: "Lowercased review status, coerced to NULL if outside approved or rejected."
+      - name: is_approved
+        description: "Boolean flag representing if the submission has been approved."
+      - name: is_rejected
+        description: "Boolean flag representing if the submission has been rejected."
+
+  - name: int_internal_census
+    description: "Internal census intermediate model (cleansed)"
+    columns:
+      - name: submission_uuid
+        description: "Primary key / unique identifier of the submission."
+        tests:
+          - unique
+          - not_null
+      - name: review_status_clean
+        description: "Lowercased review status, coerced to NULL if outside approved or rejected."
+      - name: is_approved
+        description: "Boolean flag representing if the submission has been approved."
+      - name: is_rejected
+        description: "Boolean flag representing if the submission has been rejected."

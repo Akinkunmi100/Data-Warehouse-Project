@@ -33,6 +33,14 @@ SurveyCTO Webhook ──► FastAPI Gateway ──► MinIO (raw-bronze)
 - Ubuntu 24.04 WSL2 distro with user `platform`
 - Docker Desktop (WSL2 integration enabled for Ubuntu-24.04)
 - Python 3.12+ inside WSL2 (`pip install -r requirements.txt`)
+- PostgreSQL client tools inside WSL2 (required by `backup_r2.sh`):
+  ```bash
+  sudo apt install postgresql-client
+  ```
+- AWS CLI inside WSL2 (required by `backup_r2.sh` for cloud upload):
+  ```bash
+  sudo apt install awscli
+  ```
 
 ### WSL2 Memory Configuration (`C:\Users\<you>\.wslconfig`)
 ```ini
@@ -189,7 +197,7 @@ Supported form IDs (mapped in `webhook_server.py`):
 
 | Form ID           | Client Schema     |
 |-------------------|-------------------|
-| `brand-tracker`   | `client_mtn`      |
+| `project_appraise`| `client_mtn`      |
 | `unilever-retail` | `client_unilever` |
 | `internal-census` | `internal`        |
 
@@ -197,7 +205,7 @@ Supported form IDs (mapped in `webhook_server.py`):
 
 ## Backup Strategy
 
-Daily automated backups via `scripts/backup_r2.sh` (cron: `0 4 * * *`):
+Daily automated backups via `scripts/backup_r2.sh` (cron: `0 2 * * *`):
 - PostgreSQL `pg_dump` compressed with gzip
 - MinIO data archive (tar.gz)
 - **Local retention:** 7 days (always runs, even if cloud is not configured)
