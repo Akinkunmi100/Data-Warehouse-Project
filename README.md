@@ -96,13 +96,13 @@ python3 -m uvicorn webhook.webhook_server:app --host 0.0.0.0 --port 8001
 > ⚠️ Metabase and Superset each consume ~1.5 GB RAM. **Never start both at the same time.**
 ```bash
 # Start Metabase only:
-docker compose -f docker-compose.bi.yml up metabase -d
+docker compose --env-file secrets/.env -f docker-compose.bi.yml up metabase -d
 
 # OR start Superset only:
-docker compose -f docker-compose.bi.yml up superset -d
+docker compose --env-file secrets/.env -f docker-compose.bi.yml up superset -d
 
 # Stop BI services when done:
-docker compose -f docker-compose.bi.yml stop
+docker compose --env-file secrets/.env -f docker-compose.bi.yml stop
 ```
 
 ---
@@ -193,13 +193,146 @@ Endpoint: `POST /webhook/v1/{form_id}`
 
 Authentication: HMAC-SHA256 signature via `X-SurveyCTO-Signature` header, or `?token=` query param fallback.
 
-Supported form IDs (mapped in `webhook_server.py`):
+Active SurveyCTO form IDs (mapped in `webhook_server.py`):
 
 | Form ID           | Client Schema     |
 |-------------------|-------------------|
 | `project_appraise`| `client_mtn`      |
-| `unilever-retail` | `client_unilever` |
-| `internal-census` | `internal`        |
+
+`client_unilever` and `internal` schemas are retained for future/manual data, but their
+SurveyCTO forms are not scheduled until those forms exist on the SurveyCTO server.
+
+To add another SurveyCTO project, run the one-command onboarding workflow:
+
+```powershell
+python scripts\onboard_surveycto_form.py <form_id>
+```
+
+This verifies SurveyCTO download access, registers the form, creates the
+warehouse schema/grants, regenerates dbt source and generic bronze/silver model
+files, runs the initial ETL/QC pass, builds dbt, and rebuilds the Metabase
+dashboards.
+
+You can also use Make:
+
+```bash
+make onboard FORM=<form_id>
+```
+
+### State Quotas and Achievement Dashboards
+
+State quotas are loaded separately from SurveyCTO submissions so targets can be
+updated without rebuilding project code. Prepare a CSV with these columns:
+
+```csv
+form_id,state_name,quota_target,wave_name,notes
+project_appraise,Lagos,250,default,
+project_appraise,Kano,150,default,
+```
+
+Then import and rebuild the reporting layer:
+
+```powershell
+python scripts\import_state_quotas.py path\to\state_quotas.csv
+cd dbt\research_platform
+dbt build
+cd ..\..
+python scripts\rebuild_metabase_dashboards.py
+```
+
+The comparison view is `gold.quota_vs_achievement_by_state`. Metabase uses it
+for executive and per-project quota cards. Power BI can also connect directly to
+PostgreSQL on `localhost:5435` and use the `gold` schema tables, especially
+`quota_vs_achievement_by_state`, `executive_overview`, `project_daily_submissions`,
+`regional_performance`, and `enumerator_scorecard`.
+
+### Power BI Executive Dashboard Kit
+
+The project includes a Power BI-ready dashboard package in `powerbi/`.
+
+Use this when you want a more polished executive dashboard than Metabase can
+provide:
+
+```powershell
+make powerbi-assets
+```
+
+That command builds the curated Power BI gold models and validates the live
+warehouse contract. In Power BI Desktop, connect to PostgreSQL
+`localhost:5435`, database `warehouse`, and load only these `gold` tables:
+
+| Table | Purpose |
+|---|---|
+| `dim_powerbi_project` | Project/status dimension |
+| `dim_powerbi_state` | State dimension |
+| `fact_powerbi_state_quota` | Quota vs achievement by state/project |
+| `fact_powerbi_project_daily` | Daily submission trend |
+| `fact_powerbi_qc_summary` | QC flags and severity |
+| `fact_powerbi_enumerator_scorecard` | Enumerator productivity and quality |
+| `fact_powerbi_duplicates` | Duplicate respondent risk |
+| `fact_powerbi_regional_performance` | State/regional performance |
+| `fact_powerbi_pipeline_health` | Sync status and SLA health |
+| `powerbi_project_risk_summary` | Executive operational risk summary |
+| `powerbi_kpi_snapshot` | Executive KPI snapshot |
+
+Then import the theme at `powerbi/ResearchPlatform.Theme.json`, add the DAX
+measures from `powerbi/measures.dax`, and follow
+`powerbi/report_blueprint.md` for the Onyx/ZoomCharts-style layout.
+
+If you only want to register a form without running the initial ETL:
+
+```powershell
+python scripts\onboard_surveycto_form.py <form_id> --skip-etl
+```
+
+Manual fallback:
+
+```powershell
+python scripts\register_surveycto_form.py <form_id>
+python scripts\test_surveycto.py --form <form_id> --fetch-only
+python etl\pipelines\sync_surveycto.py <form_id>
+```
+
+The webhook loads the active registry on demand, so newly registered forms are
+accepted without restarting the webhook process. Restart Prefect serve processes
+only if you need newly generated scheduled deployments to be picked up.
+
+## Executive Dashboard
+
+The cross-project executive dashboard source is:
+
+```text
+gold.executive_overview
+```
+
+It provides one row per active SurveyCTO form with total submissions, SLA
+health, QC flag counts, schema version status, and clearer Power BI status
+fields: `data_status`, `sync_status`, and `dashboard_status`.
+
+Open Metabase at `http://localhost:3030`, sign in as the existing Metabase admin,
+and create dashboard cards from `gold.executive_overview`.
+
+To rebuild the dashboard sources and Metabase dashboards from the active
+SurveyCTO registry:
+
+```bash
+make dashboards
+```
+
+`make sync-forms` copies `config/surveycto_forms.json` into
+`qc_system.registered_forms`, which is what `gold.executive_overview` and the
+dashboard health models read. `make dashboards` runs that sync, rebuilds dbt,
+then creates the executive overview, QC overview, field team leaderboard, and
+one project dashboard per active form in Metabase.
+
+Useful local monitoring links:
+
+| Service | URL |
+|---------|-----|
+| Metabase dashboards | `http://localhost:3030` |
+| Prefect runs | `http://localhost:4200` |
+| MinIO object storage | `http://localhost:9001` |
+| PostgreSQL warehouse | `localhost:5435` |
 
 ---
 

@@ -6,23 +6,20 @@
 }}
 
 /*
-  Gold layer — Pipeline health & SLA monitoring
+  Gold layer - Pipeline health and SLA monitoring
   -----------------------------------------------
-  Joins sync_state against pipeline_sla to surface:
-    • Whether each pipeline has run within its expected window
-    • How many minutes ago it last ran
-    • An 'is_breached' flag that Metabase can alert on
-
-  Intended for the Metabase "Platform Health" dashboard.
+  Registry-driven health for active SurveyCTO form pipelines.
 */
 
-with sla as (
+with forms as (
     select
-        pipeline_name,
-        expected_interval_minutes,
-        max_lag_minutes,
-        owner
-    from {{ source('qc_system', 'pipeline_sla') }}
+        form_id,
+        client,
+        client_schema,
+        etl_deployment,
+        qc_deployment
+    from {{ source('qc_system', 'registered_forms') }}
+    where active
 ),
 
 state as (
@@ -30,36 +27,39 @@ state as (
         pipeline_name,
         last_successful_sync,
         last_run_status,
-        updated_at
+        updated_at as last_attempted_at,
+        case
+            when last_run_status = 'success_no_data' then updated_at
+            else last_successful_sync
+        end as effective_success_at
     from {{ source('qc_system', 'sync_state') }}
 ),
 
 health as (
     select
-        s.pipeline_name,
-        s.owner,
+        f.form_id as pipeline_name,
+        'data_team'::text as owner,
+        f.client,
+        f.client_schema,
+        f.etl_deployment,
+        f.qc_deployment,
         st.last_run_status,
         st.last_successful_sync,
-        st.updated_at                               as last_attempted_at,
-
-        -- Minutes since last successful run (null if never run)
+        st.last_attempted_at,
         case
-            when st.last_successful_sync is not null
-            then round(extract(epoch from (now() - st.last_successful_sync)) / 60)
+            when st.effective_success_at is not null
+            then round(extract(epoch from (now() - st.effective_success_at)) / 60)
             else null
-        end                                         as minutes_since_last_success,
-
-        s.max_lag_minutes,
-
-        -- SLA breach flag: true when lag exceeds the max allowed
+        end as minutes_since_last_success,
+        1440::integer as max_lag_minutes,
         case
-            when st.last_successful_sync is null then true
-            when extract(epoch from (now() - st.last_successful_sync)) / 60 > s.max_lag_minutes then true
+            when st.effective_success_at is null then true
+            when extract(epoch from (now() - st.effective_success_at)) / 60 > 1440 then true
             else false
-        end                                         as is_sla_breached
-
-    from sla s
-    left join state st using (pipeline_name)
+        end as is_sla_breached
+    from forms f
+    left join state st
+        on st.pipeline_name = f.form_id
 )
 
 select * from health

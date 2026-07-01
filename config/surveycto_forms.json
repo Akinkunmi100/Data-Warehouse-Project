@@ -1,0 +1,47 @@
+{
+  "cis_consumer_june": {
+    "active": true,
+    "client": "client_cis_consumer_june",
+    "schema": "client_cis_consumer_june",
+    "etl_deployment": "surveycto-nightly-cis-consumer-june",
+    "qc_deployment": "qc-engine-nightly-cis-consumer-june",
+    "etl_cron": "0 1 * * *",
+    "qc_cron": "30 1 * * *"
+  },
+  "construction_sites": {
+    "active": false,
+    "client": "client_construction_sites",
+    "schema": "client_construction_sites",
+    "etl_deployment": "surveycto-nightly-construction-sites",
+    "qc_deployment": "qc-engine-nightly-construction-sites",
+    "etl_cron": "0 1 * * *",
+    "qc_cron": "30 1 * * *"
+  },
+  "project_appraise": {
+    "active": true,
+    "client": "client_mtn",
+    "schema": "client_mtn",
+    "etl_deployment": "surveycto-nightly-mtn",
+    "qc_deployment": "qc-engine-nightly-mtn",
+    "etl_cron": "0 1 * * *",
+    "qc_cron": "30 1 * * *"
+  },
+  "project_ojude_oba": {
+    "active": false,
+    "client": "client_project_ojude_oba",
+    "schema": "client_project_ojude_oba",
+    "etl_deployment": "surveycto-nightly-project-ojude-oba",
+    "qc_deployment": "qc-engine-nightly-project-ojude-oba",
+    "etl_cron": "0 1 * * *",
+    "qc_cron": "30 1 * * *"
+  },
+  "retail_and_distributor_mortar_may_ending": {
+    "active": true,
+    "client": "client_retail_and_distributor_mortar_may_ending",
+    "schema": "client_retail_and_distributor_mortar_may_ending",
+    "etl_deployment": "surveycto-nightly-retail-and-distributor-mortar-may-ending",
+    "qc_deployment": "qc-engine-nightly-retail-and-distributor-mortar-may-ending",
+    "etl_cron": "0 1 * * *",
+    "qc_cron": "30 1 * * *"
+  }
+}

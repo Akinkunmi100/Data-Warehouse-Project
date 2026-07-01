@@ -45,3 +45,15 @@ models:
         description: "Boolean flag representing if the submission has been approved."
       - name: is_rejected
         description: "Boolean flag representing if the submission has been rejected."
+
+  - name: int_cis_consumer_june
+    description: "CIS consumer June intermediate model (cleansed)."
+
+  - name: int_construction_sites
+    description: "Construction sites intermediate model (cleansed)."
+
+  - name: int_project_ojude_oba
+    description: "Ojude Oba intermediate model (cleansed)."
+
+  - name: int_retail_and_distributor_mortar_may_ending
+    description: "Retail and distributor mortar May ending intermediate model (cleansed)."

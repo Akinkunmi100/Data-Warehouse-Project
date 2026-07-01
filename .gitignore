@@ -37,6 +37,9 @@ build/
 .ipynb_checkpoints/
 
 # System logs
+dbt/research_platform/target/
+dbt/research_platform/dbt_packages/
+dbt/research_platform/logs/
 *.log
 backup/backup.log
 backup/db_size_history.log

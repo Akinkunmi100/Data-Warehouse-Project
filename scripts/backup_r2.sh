@@ -27,6 +27,67 @@ log() {
     echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $1" | tee -a "${LOG_FILE}"
 }
 
+run_pg_dump() {
+    db_name="$1"
+    if command -v pg_dump >/dev/null 2>&1; then
+        PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+            -h localhost -p 5435 \
+            -U "${POSTGRES_USER}" \
+            -d "${db_name}"
+    else
+        docker exec -e PGPASSWORD="${POSTGRES_PASSWORD}" rp-postgres \
+            pg_dump -U "${POSTGRES_USER}" -d "${db_name}"
+    fi
+}
+
+run_psql_scalar() {
+    sql="$1"
+    if command -v psql >/dev/null 2>&1; then
+        PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+            -h localhost -p 5435 \
+            -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
+            -t -A -c "${sql}"
+    else
+        docker exec -e PGPASSWORD="${POSTGRES_PASSWORD}" rp-postgres \
+            psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -t -A -c "${sql}"
+    fi
+}
+
+run_psql_exec() {
+    sql="$1"
+    if command -v psql >/dev/null 2>&1; then
+        PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+            -h localhost -p 5435 \
+            -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "${sql}"
+    else
+        docker exec -e PGPASSWORD="${POSTGRES_PASSWORD}" rp-postgres \
+            psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c "${sql}"
+    fi
+}
+
+run_aws() {
+    if command -v aws >/dev/null 2>&1; then
+        aws "$@"
+    else
+        aws_args=()
+        for arg in "$@"; do
+            case "$arg" in
+                "${BACKUP_DIR}"/*)
+                    aws_args+=("/backup/${arg#${BACKUP_DIR}/}")
+                    ;;
+                *)
+                    aws_args+=("${arg}")
+                    ;;
+            esac
+        done
+        docker run --rm \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -v "${BACKUP_DIR}:/backup:ro" \
+            amazon/aws-cli "${aws_args[@]}"
+    fi
+}
+
 log "🚀 Starting Daily Backup & Archival Routine..."
 
 # Load credentials
@@ -45,17 +106,11 @@ MINIO_TAR_FILE="${BACKUP_DIR}/minio_${TIMESTAMP}.tar.gz"
 
 # ── 1. PostgreSQL Backup (pg_dump — correct approach for named volumes) ──────
 log "Executing PostgreSQL pg_dump for warehouse..."
-PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
-    -h localhost -p 5435 \
-    -U "${POSTGRES_USER}" \
-    -d "${POSTGRES_DB}" | gzip > "${PG_DUMP_FILE}"
+run_pg_dump "${POSTGRES_DB}" | gzip > "${PG_DUMP_FILE}"
 log "✓ pg_dump warehouse complete: $(du -sh "${PG_DUMP_FILE}" | cut -f1)"
 
 log "Executing PostgreSQL pg_dump for metabaseappdb..."
-PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
-    -h localhost -p 5435 \
-    -U "${POSTGRES_USER}" \
-    -d "${METABASE_DB_NAME:-metabaseappdb}" | gzip > "${METABASE_DUMP_FILE}"
+run_pg_dump "${METABASE_DB_NAME:-metabaseappdb}" | gzip > "${METABASE_DUMP_FILE}"
 log "✓ pg_dump metabaseappdb complete: $(du -sh "${METABASE_DUMP_FILE}" | cut -f1)"
 
 # ── 2. MinIO Backup via Docker volume export ──────────────────────────────────
@@ -74,10 +129,7 @@ fi
 
 # ── 3. Database Growth Monitoring ─────────────────────────────────────────────
 log "Running database growth check..."
-DB_SIZE_CURRENT=$(PGPASSWORD="${POSTGRES_PASSWORD}" psql \
-    -h localhost -p 5435 \
-    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" \
-    -t -A -c "SELECT pg_database_size('${POSTGRES_DB}')")
+DB_SIZE_CURRENT=$(run_psql_scalar "SELECT pg_database_size('${POSTGRES_DB}')")
 
 SIZE_LOG="${BACKUP_DIR}/db_size_history.log"
 if [ ! -f "${SIZE_LOG}" ]; then
@@ -93,10 +145,7 @@ if [[ -n "${YESTERDAY_BYTES}" && "${YESTERDAY_BYTES}" =~ ^[0-9]+$ && "${YESTERDA
 
     if (( $(echo "${GROWTH_PCT} > 10.0" | bc -l) )); then
         log "⚠️  WARNING: DB grew ${GROWTH_PCT}% in 24 hours!"
-        PGPASSWORD="${POSTGRES_PASSWORD}" psql \
-            -h localhost -p 5435 \
-            -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -c \
-            "INSERT INTO qc_system.audit_log(action, detail)
+        run_psql_exec "INSERT INTO qc_system.audit_log(action, detail)
              VALUES ('high_db_growth', '{\"growth_pct\": ${GROWTH_PCT}, \"current_size_bytes\": ${DB_SIZE_CURRENT}}'::jsonb)" > /dev/null || true
     fi
 fi
@@ -111,21 +160,21 @@ if [ -n "${B2_KEY_ID:-}" ] && [ -n "${B2_APPLICATION_KEY:-}" ] && [ -n "${B2_END
     BUCKET="${B2_BUCKET}"
     ENDPOINT="${B2_ENDPOINT}"
 
-    aws s3 cp "${PG_DUMP_FILE}"   "s3://${BUCKET}/db/postgres_${TIMESTAMP}.sql.gz"    --endpoint-url "${ENDPOINT}" && log "✓ Postgres (warehouse) → B2"
-    aws s3 cp "${METABASE_DUMP_FILE}" "s3://${BUCKET}/db/metabaseappdb_${TIMESTAMP}.sql.gz" --endpoint-url "${ENDPOINT}" && log "✓ Postgres (metabase) → B2"
+    run_aws s3 cp "${PG_DUMP_FILE}"   "s3://${BUCKET}/db/postgres_${TIMESTAMP}.sql.gz"    --endpoint-url "${ENDPOINT}" && log "✓ Postgres (warehouse) → B2"
+    run_aws s3 cp "${METABASE_DUMP_FILE}" "s3://${BUCKET}/db/metabaseappdb_${TIMESTAMP}.sql.gz" --endpoint-url "${ENDPOINT}" && log "✓ Postgres (metabase) → B2"
     [ -f "${MINIO_TAR_FILE}" ] && \
-    aws s3 cp "${MINIO_TAR_FILE}" "s3://${BUCKET}/storage/minio_${TIMESTAMP}.tar.gz"  --endpoint-url "${ENDPOINT}" && log "✓ MinIO   → B2"
+    run_aws s3 cp "${MINIO_TAR_FILE}" "s3://${BUCKET}/storage/minio_${TIMESTAMP}.tar.gz"  --endpoint-url "${ENDPOINT}" && log "✓ MinIO   → B2"
 
     log "Pruning B2 objects older than 30 days..."
     LIMIT_DATE=$(date -d "30 days ago" +%s)
     for prefix in db storage; do
-        aws s3 ls "s3://${BUCKET}/${prefix}/" --endpoint-url "${ENDPOINT}" | while read -r line; do
+        run_aws s3 ls "s3://${BUCKET}/${prefix}/" --endpoint-url "${ENDPOINT}" | while read -r line; do
             FILE_DATE=$(echo "$line" | awk '{print $1" "$2}')
             FILE_NAME=$(echo "$line" | awk '{print $4}')
             FILE_EPOCH=$(date -d "$FILE_DATE" +%s)
             if [ "${FILE_EPOCH}" -lt "${LIMIT_DATE}" ]; then
                 log "  Pruning: s3://${BUCKET}/${prefix}/${FILE_NAME}"
-                aws s3 rm "s3://${BUCKET}/${prefix}/${FILE_NAME}" --endpoint-url "${ENDPOINT}"
+                run_aws s3 rm "s3://${BUCKET}/${prefix}/${FILE_NAME}" --endpoint-url "${ENDPOINT}"
             fi
         done
     done
@@ -138,21 +187,21 @@ elif [ -n "${R2_ACCESS_KEY_ID:-}" ] && [ -n "${R2_SECRET_ACCESS_KEY:-}" ] && [ -
     BUCKET="${R2_BUCKET}"
     ENDPOINT="${R2_ENDPOINT}"
 
-    aws s3 cp "${PG_DUMP_FILE}"   "s3://${BUCKET}/db/postgres_${TIMESTAMP}.sql.gz"    --endpoint-url "${ENDPOINT}" && log "✓ Postgres (warehouse) → R2"
-    aws s3 cp "${METABASE_DUMP_FILE}" "s3://${BUCKET}/db/metabaseappdb_${TIMESTAMP}.sql.gz" --endpoint-url "${ENDPOINT}" && log "✓ Postgres (metabase) → R2"
+    run_aws s3 cp "${PG_DUMP_FILE}"   "s3://${BUCKET}/db/postgres_${TIMESTAMP}.sql.gz"    --endpoint-url "${ENDPOINT}" && log "✓ Postgres (warehouse) → R2"
+    run_aws s3 cp "${METABASE_DUMP_FILE}" "s3://${BUCKET}/db/metabaseappdb_${TIMESTAMP}.sql.gz" --endpoint-url "${ENDPOINT}" && log "✓ Postgres (metabase) → R2"
     [ -f "${MINIO_TAR_FILE}" ] && \
-    aws s3 cp "${MINIO_TAR_FILE}" "s3://${BUCKET}/storage/minio_${TIMESTAMP}.tar.gz"  --endpoint-url "${ENDPOINT}" && log "✓ MinIO   → R2"
+    run_aws s3 cp "${MINIO_TAR_FILE}" "s3://${BUCKET}/storage/minio_${TIMESTAMP}.tar.gz"  --endpoint-url "${ENDPOINT}" && log "✓ MinIO   → R2"
 
     log "Pruning R2 objects older than 30 days..."
     LIMIT_DATE=$(date -d "30 days ago" +%s)
     for prefix in db storage; do
-        aws s3 ls "s3://${BUCKET}/${prefix}/" --endpoint-url "${ENDPOINT}" | while read -r line; do
+        run_aws s3 ls "s3://${BUCKET}/${prefix}/" --endpoint-url "${ENDPOINT}" | while read -r line; do
             FILE_DATE=$(echo "$line" | awk '{print $1" "$2}')
             FILE_NAME=$(echo "$line" | awk '{print $4}')
             FILE_EPOCH=$(date -d "$FILE_DATE" +%s)
             if [ "${FILE_EPOCH}" -lt "${LIMIT_DATE}" ]; then
                 log "  Pruning: s3://${BUCKET}/${prefix}/${FILE_NAME}"
-                aws s3 rm "s3://${BUCKET}/${prefix}/${FILE_NAME}" --endpoint-url "${ENDPOINT}"
+                run_aws s3 rm "s3://${BUCKET}/${prefix}/${FILE_NAME}" --endpoint-url "${ENDPOINT}"
             fi
         done
     done

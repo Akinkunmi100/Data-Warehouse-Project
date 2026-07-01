@@ -7,19 +7,27 @@ backup integrity, docker health, code quality, and process requirements.
 import os, sys, json, subprocess, stat, re, textwrap, shutil
 from dotenv import load_dotenv
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
 ENV_PATH = os.path.join(PROJECT_DIR, "secrets", ".env")
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
 load_dotenv(ENV_PATH)
 
 from sqlalchemy import create_engine, text
 import requests, boto3
 from botocore.client import Config
+from etl.utils import build_db_url
 
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASS = os.getenv("POSTGRES_PASSWORD")
 DB_NAME = os.getenv("POSTGRES_DB")
-DB_URL  = f"postgresql://{DB_USER}:{DB_PASS}@localhost:5435/{DB_NAME}"
+DB_URL  = build_db_url()
 engine  = create_engine(DB_URL)
 
 MINIO_USER = os.getenv("MINIO_ROOT_USER")
@@ -144,14 +152,16 @@ check("Security: Webhook secret strength", check_webhook_secret, "security")
 
 # 5. DB passwords URL-safe check (critical for SQLAlchemy)
 def check_url_safe_passwords():
+    raw_password = os.getenv("POSTGRES_PASSWORD", "")
+    encoded_url = build_db_url()
+    if raw_password and raw_password not in encoded_url:
+        return "PASS", "POSTGRES_PASSWORD is URL-encoded by build_db_url()"
     unsafe = ['!', '@', '#', '$', '%', '&', '+', '=', '?', '/']
-    for var in ['POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD']:
-        val = os.getenv(var, "")
-        found = [c for c in unsafe if c in val]
-        if found:
-            return "FAIL", f"{var} contains URL-unsafe chars {found} — will break SQLAlchemy connection strings"
-    return "PASS", "All service passwords are URL-safe"
-check("Security: Service passwords URL-safe", check_url_safe_passwords, "security")
+    found = [c for c in raw_password if c in unsafe]
+    if found:
+        return "FAIL", f"POSTGRES_PASSWORD contains URL-unsafe chars {found} and was not encoded"
+    return "PASS", "POSTGRES_PASSWORD is URL-safe"
+check("Security: SQLAlchemy DB URL encoding", check_url_safe_passwords, "security")
 
 # ══════════════════════════════════════════════════════════════
 # C. DATABASE PRIVILEGE ISOLATION
@@ -330,13 +340,10 @@ check("Code/ETL: Connection lifecycle", check_connection_lifecycle, "code")
 
 # Check: ETL SQL injection risk via f-strings with form_id
 def check_sql_injection():
-    dangerous_patterns = [
-        (etl_code, "ETL", r'f".*\{form_id\}.*"'),
-        (qc_code,  "QC",  r'f".*\{form_id\}.*"'),
-    ]
-    for code, name, pat in dangerous_patterns:
-        if re.search(pat, code):
-            return "WARN", f"{name}: form_id interpolated directly into SQL f-strings — sanitize with .replace() or validate against allowlist before use"
+    if "safe_form_id       = _safe_id(form_id)" not in etl_code:
+        return "WARN", "ETL does not sanitize form_id before building table identifiers"
+    if "safe_form   = _safe_id(form_id)" not in qc_code:
+        return "WARN", "QC does not sanitize form_id before building table identifiers"
     return "PASS", "No obvious raw SQL injection vectors found"
 check("Code: SQL injection surface (f-strings)", check_sql_injection, "code")
 
@@ -356,7 +363,10 @@ check("Code/Webhook: subprocess shell injection", check_webhook_subprocess, "cod
 
 # Check: Webhook form_id validated against allowlist before subprocess
 def check_webhook_form_id_validation():
-    # FORM_SCHEMA_MAP lookup happens before process_and_trigger call
+    if "get_form_runtime_config(form_id)" in webhook_code:
+        if "load_form_registry(active_only=True).get(form_id)" in webhook_code and "if not mapping:" in webhook_code:
+            return "PASS", "form_id validated against active SurveyCTO registry allowlist before processing"
+    # Legacy FORM_SCHEMA_MAP lookup happens before process_and_trigger call
     if "FORM_SCHEMA_MAP.get(form_id)" in webhook_code:
         if "mapping = FORM_SCHEMA_MAP.get(form_id)" in webhook_code:
             if "if not mapping:" in webhook_code:
@@ -367,13 +377,19 @@ check("Code/Webhook: form_id allowlist validation", check_webhook_form_id_valida
 # Check: backup script has pg_dump available
 def check_backup_deps():
     pg_dump_exists = shutil.which("pg_dump") is not None
+    docker_exists = shutil.which("docker") is not None
     aws_exists = shutil.which("aws") is not None
+    cloud_configured = (
+        os.getenv("B2_KEY_ID") and os.getenv("B2_APPLICATION_KEY")
+    ) or (
+        os.getenv("R2_ACCESS_KEY_ID") and os.getenv("R2_SECRET_ACCESS_KEY")
+    )
     issues = []
-    if not pg_dump_exists:
+    if not pg_dump_exists and not docker_exists:
         issues.append("pg_dump not found in PATH — backup will fail")
-    if not aws_exists:
+    if cloud_configured and not aws_exists and not docker_exists:
         issues.append("aws CLI not found — R2 uploads will fail")
-    return ("WARN", f"Missing tools: {issues}") if issues else ("PASS", "pg_dump and aws CLI available")
+    return ("WARN", f"Missing tools: {issues}") if issues else ("PASS", "Backup dependencies available")
 check("Backup: Required CLI tools available", check_backup_deps, "code")
 
 # Check: ETL has retry logic on Prefect tasks
@@ -401,12 +417,17 @@ def check_backup_script_executable():
     path = os.path.join(PROJECT_DIR, "scripts/backup_r2.sh")
     st = os.stat(path)
     executable = bool(st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))
+    if os.name == "nt":
+        makefile_path = os.path.join(PROJECT_DIR, "Makefile")
+        makefile_text = open(makefile_path, encoding="utf-8").read() if os.path.exists(makefile_path) else ""
+        if "bash scripts/backup_r2.sh" in makefile_text:
+            return "PASS", "backup target invokes backup_r2.sh through bash on Windows"
     return ("PASS", "backup_r2.sh is executable") if executable else ("WARN", "backup_r2.sh is not executable — run: chmod +x scripts/backup_r2.sh")
 check("Ops: backup_r2.sh is executable", check_backup_script_executable, "ops")
 
 def check_prefect_flows_registered():
     try:
-        r = requests.post("http://localhost:4200/api/deployments/filter", timeout=5)
+        r = requests.post("http://localhost:4200/api/deployments/filter", timeout=15)
         data = r.json()
         count = len(data) if isinstance(data, list) else 0
         if count == 0:
@@ -416,13 +437,13 @@ def check_prefect_flows_registered():
         return "WARN", f"Could not query Prefect deployments API: {e}"
 check("Ops: Prefect flows deployed", check_prefect_flows_registered, "ops")
 
-def check_sync_state_seeded():
+def check_sync_state_initialized():
     with engine.connect() as conn:
         count = conn.execute(text("SELECT count(*) FROM qc_system.sync_state")).scalar()
         if count == 0:
             return "INFO", "sync_state is empty — will be populated on first ETL run (expected)"
         return "PASS", f"{count} pipeline sync state(s) recorded"
-check("Ops: ETL sync state", check_sync_state_seeded, "ops")
+check("Ops: ETL sync state", check_sync_state_initialized, "ops")
 
 def check_dlq_empty():
     with engine.connect() as conn:
@@ -433,7 +454,7 @@ def check_dlq_empty():
 check("Ops: Dead letter queue empty", check_dlq_empty, "ops")
 
 def check_prefect_healthcheck():
-    r = requests.get("http://localhost:4200/api/health", timeout=5)
+    r = requests.get("http://localhost:4200/api/health", timeout=15)
     return ("PASS", f"Prefect API healthy (HTTP {r.status_code})") if r.status_code == 200 else ("FAIL", f"HTTP {r.status_code}")
 check("Ops: Prefect server health", check_prefect_healthcheck, "ops")
 

@@ -5,9 +5,9 @@
 # Never start both at the same time to avoid OOM crashes.
 #
 # Usage:
-#   docker compose -f docker-compose.bi.yml up metabase -d
-#   docker compose -f docker-compose.bi.yml up superset -d
-#   docker compose -f docker-compose.bi.yml stop
+#   docker compose --env-file secrets/.env -f docker-compose.bi.yml up metabase -d
+#   docker compose --env-file secrets/.env -f docker-compose.bi.yml up superset -d
+#   docker compose --env-file secrets/.env -f docker-compose.bi.yml stop
 
 services:
 

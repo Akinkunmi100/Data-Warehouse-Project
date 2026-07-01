@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # ══════════════════════════════════════════
 # Research Data Platform — Service Account Password Initialiser
 # Runs as /docker-entrypoint-initdb.d/02_init_users.sh AFTER 01_init.sql
@@ -11,7 +11,8 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $1"; }
 
 # Validate required env vars
 for var in ETL_SVC_PASSWORD ANALYST_PASSWORD METABASE_APP_PASSWORD; do
-    if [ -z "${!var:-}" ]; then
+    eval "value=\${$var:-}"
+    if [ -z "$value" ]; then
         log "ERROR: $var is not set in secrets/.env — aborting to prevent empty passwords."
         exit 1
     fi

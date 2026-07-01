@@ -1,47 +1,103 @@
 version: 2
 
 sources:
+  - name: client_cis_consumer_june
+    description: "Raw SurveyCTO submissions for cis_consumer_june."
+    schema: client_cis_consumer_june
+    tables:
+      - name: cis_consumer_june
+        description: "Main survey table for cis_consumer_june."
+        columns:
+          - name: submission_uuid
+            description: "Primary key: SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last warehouse upsert."
+
+  - name: client_construction_sites
+    description: "Raw SurveyCTO submissions for construction_sites."
+    schema: client_construction_sites
+    tables:
+      - name: construction_sites
+        description: "Main survey table for construction_sites."
+        columns:
+          - name: submission_uuid
+            description: "Primary key: SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last warehouse upsert."
+
   - name: client_mtn
-    description: "Raw SurveyCTO submissions for MTN project_appraise — upserted by the ETL pipeline."
+    description: "Raw SurveyCTO submissions for project_appraise."
     schema: client_mtn
     tables:
       - name: project_appraise
-        description: "Main survey table for the MTN project appraisal form."
+        description: "Main survey table for project_appraise."
         columns:
           - name: submission_uuid
-            description: "Primary key — SurveyCTO KEY field."
+            description: "Primary key: SurveyCTO KEY field."
           - name: review_status
-            description: "SurveyCTO review console status (approved / rejected / unknown)."
+            description: "SurveyCTO review console status."
           - name: updated_at
-            description: "Timestamp of the last upsert."
+            description: "Timestamp of the last warehouse upsert."
+
+  - name: client_project_ojude_oba
+    description: "Raw SurveyCTO submissions for project_ojude_oba."
+    schema: client_project_ojude_oba
+    tables:
+      - name: project_ojude_oba
+        description: "Main survey table for project_ojude_oba."
+        columns:
+          - name: submission_uuid
+            description: "Primary key: SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last warehouse upsert."
+
+  - name: client_retail_and_distributor_mortar_may_ending
+    description: "Raw SurveyCTO submissions for retail_and_distributor_mortar_may_ending."
+    schema: client_retail_and_distributor_mortar_may_ending
+    tables:
+      - name: retail_and_distributor_mortar_may_ending
+        description: "Main survey table for retail_and_distributor_mortar_may_ending."
+        columns:
+          - name: submission_uuid
+            description: "Primary key: SurveyCTO KEY field."
+          - name: review_status
+            description: "SurveyCTO review console status."
+          - name: updated_at
+            description: "Timestamp of the last warehouse upsert."
 
   - name: client_unilever
-    description: "Raw SurveyCTO submissions for the Unilever retail form."
+    description: "Raw submissions for the legacy Unilever retail form."
     schema: client_unilever
     tables:
       - name: unilever_retail
-        description: "Main survey table for the Unilever retail census form."
+        description: "Raw submissions for the legacy Unilever retail form."
         columns:
           - name: submission_uuid
-            description: "Primary key — SurveyCTO KEY field."
+            description: "Primary key: SurveyCTO KEY field."
           - name: review_status
             description: "SurveyCTO review console status."
           - name: updated_at
-            description: "Timestamp of the last upsert."
+            description: "Timestamp of the last warehouse upsert."
 
   - name: internal
-    description: "Raw SurveyCTO submissions for the internal census form."
+    description: "Raw submissions for the legacy internal census form."
     schema: internal
     tables:
       - name: internal_census
-        description: "Main survey table for the internal census form."
+        description: "Raw submissions for the legacy internal census form."
         columns:
           - name: submission_uuid
-            description: "Primary key — SurveyCTO KEY field."
+            description: "Primary key: SurveyCTO KEY field."
           - name: review_status
             description: "SurveyCTO review console status."
           - name: updated_at
-            description: "Timestamp of the last upsert."
+            description: "Timestamp of the last warehouse upsert."
 
   - name: qc_system
     description: "Platform metadata, QC flags, audit logs, and SLA trackers."
@@ -53,6 +109,12 @@ sources:
         description: "Incremental sync cursor for each ETL pipeline."
       - name: pipeline_sla
         description: "Expected cadence and max-lag config per pipeline."
+      - name: registered_forms
+        description: "Active SurveyCTO form registry used by executive dashboards."
+      - name: project_state_quotas
+        description: "State-level project quota targets used for quota vs achievement dashboards."
+      - name: form_versions
+        description: "Detected SurveyCTO form schema versions and column manifests."
       - name: enumerator_scores
         description: "Per-enumerator quality scorecards computed by qc_engine."
       - name: audit_log

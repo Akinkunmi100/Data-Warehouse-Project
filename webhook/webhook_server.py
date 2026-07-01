@@ -7,6 +7,7 @@ import json
 import uuid
 import hmac
 import hashlib
+import re
 from typing import Dict, Any
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Header, status
 from fastapi.responses import JSONResponse
@@ -31,6 +32,7 @@ if not WEBHOOK_SECRET:
 MINIO_USER     = os.getenv("MINIO_ROOT_USER")
 MINIO_PASS     = os.getenv("MINIO_ROOT_PASSWORD")
 MINIO_ENDPOINT = "http://localhost:9000"
+FORM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 # FIX: was building DB_URL without URL-encoding the password.
 # Uses etl.utils.build_db_url() which applies urllib.parse.quote_plus.
@@ -40,25 +42,25 @@ _WEBHOOK_DIR = _os.path.dirname(_os.path.abspath(__file__))
 _PROJECT_ROOT = _os.path.abspath(_os.path.join(_WEBHOOK_DIR, ".."))
 if _PROJECT_ROOT not in _sys.path:
     _sys.path.insert(0, _PROJECT_ROOT)
+from etl.surveycto_registry import load_form_registry
 from etl.utils import build_db_url
 DB_URL = build_db_url()
 
 app    = FastAPI(title="Research Data Platform Webhook Gateway")
 engine = create_engine(DB_URL)
 
-FORM_SCHEMA_MAP = {
-    "project_appraise": {"client": "client_mtn",      "schema": "client_mtn"},
-    "unilever-retail":  {"client": "client_unilever",  "schema": "client_unilever"},
-    "internal-census":  {"client": "internal",         "schema": "internal"},
-}
-
-# FIX: map each schema to its registered Prefect deployment name so that
-# webhook-triggered runs appear in the Prefect UI like any scheduled run.
-DEPLOYMENT_MAP = {
-    "client_mtn":      "surveycto-ingestion-orchestrator/surveycto-nightly-mtn",
-    "client_unilever": "surveycto-ingestion-orchestrator/surveycto-nightly-unilever",
-    "internal":        "surveycto-ingestion-orchestrator/surveycto-nightly-internal",
-}
+def get_form_runtime_config(form_id: str) -> dict[str, Any] | None:
+    """Load form routing on demand so newly registered forms work without a webhook restart."""
+    if not FORM_ID_PATTERN.fullmatch(form_id):
+        return None
+    config = load_form_registry(active_only=True).get(form_id)
+    if not config:
+        return None
+    return {
+        "client": config["client"],
+        "schema": config["schema"],
+        "deployment_name": f"surveycto-ingestion-orchestrator/{config['etl_deployment']}",
+    }
 
 # FIX Bug 4: Prefect 3.x moved run_deployment out of prefect.deployments.
 # Import at module level with a try/except chain so the failure surfaces once
@@ -110,7 +112,13 @@ def write_to_dlq(form_id: str, client_schema: str, payload: Any, error_msg: str)
         print(f"FAILED TO WRITE TO DLQ: {e}")
 
 
-async def process_and_trigger(form_id: str, client: str, schema: str, payload: Dict[str, Any]):
+async def process_and_trigger(
+    form_id: str,
+    client: str,
+    schema: str,
+    deployment_name: str,
+    payload: Dict[str, Any],
+):
     """Saves payload to MinIO then triggers a Prefect flow run via the Prefect API.
 
     FIX Bug 4: was using subprocess.Popen() which spawned a raw Python process completely
@@ -150,10 +158,9 @@ async def process_and_trigger(form_id: str, client: str, schema: str, payload: D
         return
 
     # ── 2. Trigger Prefect flow run via API (visible in UI) ───────────────────
-    deployment_name = DEPLOYMENT_MAP.get(schema)
     if not deployment_name:
-        print(f"No deployment mapping for schema '{schema}' — cannot trigger Prefect run.")
-        write_to_dlq(form_id, schema, payload, f"No deployment mapping for schema: {schema}")
+        print(f"No deployment mapping for form '{form_id}' - cannot trigger Prefect run.")
+        write_to_dlq(form_id, schema, payload, f"No deployment mapping for form: {form_id}")
         return
 
     # FIX Bug 4: use the module-level _run_deployment (resolved once at startup).
@@ -211,7 +218,7 @@ async def receive_survey(
                 detail="Authorization token missing or invalid."
             )
 
-    mapping = FORM_SCHEMA_MAP.get(form_id)
+    mapping = get_form_runtime_config(form_id)
     if not mapping:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -248,6 +255,7 @@ async def receive_survey(
         form_id=form_id,
         client=mapping['client'],
         schema=mapping['schema'],
+        deployment_name=mapping['deployment_name'],
         payload=payload
     )
 

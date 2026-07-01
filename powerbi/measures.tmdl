@@ -1,0 +1,215 @@
+createOrReplace
+
+	ref table _calculations
+		measure 'Total Quota' = SUM ( 'gold fact_powerbi_state_quota'[quota_target] )
+			formatString: #,##0
+
+		measure 'Achieved Submissions' = SUM ( 'gold fact_powerbi_state_quota'[achieved_submissions] )
+			formatString: #,##0
+
+		measure 'Approved Submissions' = SUM ( 'gold fact_powerbi_state_quota'[approved_submissions] )
+			formatString: #,##0
+
+		measure 'Rejected Submissions' = SUM ( 'gold fact_powerbi_state_quota'[rejected_submissions] )
+			formatString: #,##0
+
+		measure 'Pending Or Unknown Submissions' = SUM ( 'gold fact_powerbi_state_quota'[pending_or_unknown_submissions] )
+			formatString: #,##0
+
+		measure 'Achievement Rate %' =
+				DIVIDE (
+				    SUM ( 'gold fact_powerbi_state_quota'[achieved_submissions] ),
+				    SUM ( 'gold fact_powerbi_state_quota'[quota_target] )
+				)
+			formatString: 0.0%
+
+		measure 'Remaining To Quota' = SUM ( 'gold fact_powerbi_state_quota'[remaining_to_quota] )
+			formatString: #,##0
+
+		measure 'States Behind Quota' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_state_quota',
+				        'gold fact_powerbi_state_quota'[has_quota] = TRUE ()
+				            && 'gold fact_powerbi_state_quota'[achieved_submissions] < 'gold fact_powerbi_state_quota'[quota_target]
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Quota Status Sort' =
+				SWITCH (
+				    SELECTEDVALUE ( 'gold fact_powerbi_state_quota'[quota_status] ),
+				    "behind", 1,
+				    "not_started", 2,
+				    "on_track", 3,
+				    "met", 4,
+				    "no_quota", 5,
+				    9
+				)
+			formatString: 0
+
+		measure 'Loaded Projects' =
+				COUNTROWS (
+				    FILTER ( 'gold dim_powerbi_project', 'gold dim_powerbi_project'[total_submissions] > 0 )
+				)
+			formatString: #,##0
+
+		measure 'Active Projects' =
+				COUNTROWS ( 'gold dim_powerbi_project' )
+			formatString: #,##0
+
+		measure 'Total QC Flags' = SUM ( 'gold dim_powerbi_project'[total_qc_flags] )
+			formatString: #,##0
+
+		measure 'Critical QC Flags' = SUM ( 'gold dim_powerbi_project'[critical_qc_flags] )
+			formatString: #,##0
+
+		measure 'High QC Flags' = SUM ( 'gold dim_powerbi_project'[high_qc_flags] )
+			formatString: #,##0
+
+		measure 'Flagged Submission Rate %' = AVERAGE ( 'gold dim_powerbi_project'[flagged_submission_rate_pct] )
+			formatString: 0.0%
+
+		measure 'Daily Submissions' = SUM ( 'gold fact_powerbi_project_daily'[total_submissions] )
+			formatString: #,##0
+
+		measure 'Daily Approved' = SUM ( 'gold fact_powerbi_project_daily'[approved_submissions] )
+			formatString: #,##0
+
+		measure 'Daily Rejected' = SUM ( 'gold fact_powerbi_project_daily'[rejected_submissions] )
+			formatString: #,##0
+
+		measure 'Completion Label' =
+				FORMAT (
+				    DIVIDE (
+				        SUM ( 'gold fact_powerbi_state_quota'[achieved_submissions] ),
+				        SUM ( 'gold fact_powerbi_state_quota'[quota_target] )
+				    ),
+				    "0.0%"
+				)
+				    & " of quota achieved"
+
+		measure 'Quota Gap Rank' =
+				RANKX (
+				    ALLSELECTED ( 'gold fact_powerbi_state_quota'[state_name] ),
+				    CALCULATE ( SUM ( 'gold fact_powerbi_state_quota'[remaining_to_quota] ) ),
+				    ,
+				    DESC,
+				    Dense
+				)
+			formatString: #,##0
+
+		measure 'Duplicate Count' = SUM ( 'gold fact_powerbi_duplicates'[duplicate_count] )
+			formatString: #,##0
+
+		measure 'Duplicated Respondents' = DISTINCTCOUNT ( 'gold fact_powerbi_duplicates'[respondent_reference] )
+			formatString: #,##0
+
+		measure 'Duplicate Severity Critical' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_duplicates',
+				        'gold fact_powerbi_duplicates'[duplicate_severity] = "critical"
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Enumerators With Duplicates' = DISTINCTCOUNT ( 'gold fact_powerbi_duplicates'[enumerator_name] )
+			formatString: #,##0
+
+		measure 'Enumerator Count' = DISTINCTCOUNT ( 'gold fact_powerbi_enumerator_scorecard'[enumerator_name] )
+			formatString: #,##0
+
+		measure 'Average Quality Score' = AVERAGE ( 'gold fact_powerbi_enumerator_scorecard'[quality_score] )
+			formatString: 0.0
+
+		measure 'Enumerators Needing Review' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_enumerator_scorecard',
+				        'gold fact_powerbi_enumerator_scorecard'[quality_band] IN { "watch", "needs_review" }
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Average Enumerator Flag Rate' = AVERAGE ( 'gold fact_powerbi_enumerator_scorecard'[flag_rate] )
+			formatString: 0.0%
+
+		measure 'States With Submissions' = DISTINCTCOUNT ( 'gold fact_powerbi_regional_performance'[state_name] )
+			formatString: #,##0
+
+		measure 'Average State Approval Rate %' =
+				DIVIDE (
+				    AVERAGE ( 'gold fact_powerbi_regional_performance'[approval_rate_pct] ),
+				    100
+				)
+			formatString: 0.0%
+
+		measure 'States Needing Review' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_regional_performance',
+				        'gold fact_powerbi_regional_performance'[approval_band] IN { "watch", "needs_review" }
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Pipeline Breaches' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_pipeline_health',
+				        'gold fact_powerbi_pipeline_health'[is_sla_breached] = TRUE ()
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Failed Pipelines' =
+				COUNTROWS (
+				    FILTER (
+				        'gold fact_powerbi_pipeline_health',
+				        'gold fact_powerbi_pipeline_health'[pipeline_status] = "failed"
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Average Minutes Since Sync' = AVERAGE ( 'gold fact_powerbi_pipeline_health'[minutes_since_last_success] )
+			formatString: #,##0.0
+
+		measure 'Max Project Risk Score' = MAX ( 'gold powerbi_project_risk_summary'[operational_risk_score] )
+			formatString: 0
+
+		measure 'High Risk Projects' =
+				COUNTROWS (
+				    FILTER (
+				        'gold powerbi_project_risk_summary',
+				        'gold powerbi_project_risk_summary'[operational_risk_band] IN { "critical", "high" }
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Projects Needing Attention' =
+				COUNTROWS (
+				    FILTER (
+				        'gold powerbi_project_risk_summary',
+				        'gold powerbi_project_risk_summary'[operational_risk_band] <> "healthy"
+				    )
+				)
+			formatString: #,##0
+
+		measure 'Risk Label' =
+				VAR Score = MAX ( 'gold powerbi_project_risk_summary'[operational_risk_score] )
+				RETURN
+				    SWITCH (
+				        TRUE (),
+				        Score >= 70, "Critical",
+				        Score >= 40, "High",
+				        Score > 0, "Watch",
+				        "Healthy"
+				    )
+
+		measure 'Submission Approval Rate %' =
+				DIVIDE (
+				    SUM ( 'gold fact_powerbi_state_quota'[approved_submissions] ),
+				    SUM ( 'gold fact_powerbi_state_quota'[achieved_submissions] )
+				)
+			formatString: 0.0%

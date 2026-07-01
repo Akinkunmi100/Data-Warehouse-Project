@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # ══════════════════════════════════════════
 # Research Data Platform — Metabase Database Initialiser
 # Called by the metabase-db-init container in docker-compose.yml
@@ -8,7 +8,8 @@ set -e
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $1"; }
 
 for var in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB METABASE_DB_NAME METABASE_DB_USER METABASE_DB_PASSWORD; do
-    if [ -z "${!var:-}" ]; then
+    eval "value=\${$var:-}"
+    if [ -z "$value" ]; then
         log "ERROR: Required variable $var is not set. Aborting Metabase DB init."
         exit 1
     fi

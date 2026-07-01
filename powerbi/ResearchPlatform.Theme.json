@@ -1,0 +1,107 @@
+{
+  "name": "Research Platform Onyx",
+  "dataColors": [
+    "#111827",
+    "#2563EB",
+    "#10B981",
+    "#F59E0B",
+    "#EF4444",
+    "#7C3AED",
+    "#06B6D4",
+    "#64748B"
+  ],
+  "background": "#F8FAFC",
+  "foreground": "#111827",
+  "tableAccent": "#2563EB",
+  "visualStyles": {
+    "*": {
+      "*": {
+        "fontFamily": [
+          {
+            "fontFamily": "Segoe UI"
+          }
+        ],
+        "labels": [
+          {
+            "color": {
+              "solid": {
+                "color": "#111827"
+              }
+            }
+          }
+        ],
+        "title": [
+          {
+            "fontSize": 11,
+            "fontColor": {
+              "solid": {
+                "color": "#111827"
+              }
+            },
+            "alignment": "Left"
+          }
+        ],
+        "background": [
+          {
+            "color": {
+              "solid": {
+                "color": "#FFFFFF"
+              }
+            },
+            "transparency": 0
+          }
+        ],
+        "border": [
+          {
+            "show": true,
+            "color": {
+              "solid": {
+                "color": "#E5E7EB"
+              }
+            },
+            "radius": 6
+          }
+        ]
+      }
+    },
+    "card": {
+      "*": {
+        "categoryLabels": [
+          {
+            "show": true,
+            "fontSize": 10,
+            "color": {
+              "solid": {
+                "color": "#64748B"
+              }
+            }
+          }
+        ],
+        "labels": [
+          {
+            "fontSize": 22,
+            "color": {
+              "solid": {
+                "color": "#111827"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "slicer": {
+      "*": {
+        "header": [
+          {
+            "show": true,
+            "fontColor": {
+              "solid": {
+                "color": "#111827"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

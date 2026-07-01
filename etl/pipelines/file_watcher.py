@@ -1,7 +1,6 @@
 import os, sys, json, time, uuid, shutil, threading
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -21,13 +20,11 @@ from prefect.logging import get_run_logger
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from etl.utils import safe_id
+from etl.utils import safe_id, build_db_url
 
-DB_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:"
-    f"{quote_plus(os.getenv('POSTGRES_PASSWORD',''))}@localhost:5435/"
-    f"{os.getenv('POSTGRES_DB')}"
-)
+# FIX: was building DB_URL with an inline f-string + manual quote_plus.
+# Now uses the shared build_db_url() from etl.utils — single source of truth.
+DB_URL = build_db_url()
 MINIO_USER     = os.getenv("MINIO_ROOT_USER")
 MINIO_PASS     = os.getenv("MINIO_ROOT_PASSWORD")
 MINIO_ENDPOINT = "http://localhost:9000"

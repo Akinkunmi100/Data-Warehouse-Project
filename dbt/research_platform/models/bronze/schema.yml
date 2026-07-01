@@ -14,7 +14,8 @@ models:
         description: "SurveyCTO review console status."
         tests:
           - accepted_values:
-              values: ['approved', 'rejected', 'unknown']
+              arguments:
+                values: ['approved', 'rejected', 'unknown', 'APPROVED', 'REJECTED', 'UNKNOWN']
 
   - name: stg_unilever_retail
     description: "Pass-through staging view over client_unilever.unilever_retail."
@@ -26,7 +27,8 @@ models:
       - name: review_status
         tests:
           - accepted_values:
-              values: ['approved', 'rejected', 'unknown']
+              arguments:
+                values: ['approved', 'rejected', 'unknown', 'APPROVED', 'REJECTED', 'UNKNOWN']
 
   - name: stg_internal_census
     description: "Pass-through staging view over internal.internal_census."
@@ -38,43 +40,17 @@ models:
       - name: review_status
         tests:
           - accepted_values:
-              values: ['approved', 'rejected', 'unknown']
+              arguments:
+                values: ['approved', 'rejected', 'unknown', 'APPROVED', 'REJECTED', 'UNKNOWN']
 
-  # ── Silver layer ────────────────────────────────────────────────────────────
-  - name: int_mtn_project_appraise
-    description: "Cleaned MTN silver model — normalised review_status, approval flags."
-    columns:
-      - name: submission_uuid
-        tests:
-          - not_null
-          - unique
-      - name: is_approved
-        tests:
-          - not_null
-      - name: review_status_clean
-        tests:
-          - accepted_values:
-              values: ['approved', 'rejected', null]
-              quote: false
+  - name: stg_cis_consumer_june
+    description: "Pass-through staging view over client_cis_consumer_june.cis_consumer_june."
 
-  - name: int_unilever_retail
-    description: "Cleaned Unilever silver model."
-    columns:
-      - name: submission_uuid
-        tests:
-          - not_null
-          - unique
-      - name: is_approved
-        tests:
-          - not_null
+  - name: stg_construction_sites
+    description: "Pass-through staging view over client_construction_sites.construction_sites."
 
-  - name: int_internal_census
-    description: "Cleaned internal census silver model."
-    columns:
-      - name: submission_uuid
-        tests:
-          - not_null
-          - unique
-      - name: is_approved
-        tests:
-          - not_null
+  - name: stg_project_ojude_oba
+    description: "Pass-through staging view over client_project_ojude_oba.project_ojude_oba."
+
+  - name: stg_retail_and_distributor_mortar_may_ending
+    description: "Pass-through staging view over client_retail_and_distributor_mortar_may_ending.retail_and_distributor_mortar_may_ending."

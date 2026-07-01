@@ -50,9 +50,19 @@ models:
           - unique
 
   - name: regional_performance
-    description: "Submission rates and quality metrics aggregated by region."
+    description: "Live submission and approval metrics aggregated by project and state/region."
     columns:
       - name: region_name
+        tests:
+          - not_null
+
+  - name: project_daily_submissions
+    description: "Daily submission and review-status totals for all active SurveyCTO projects."
+    columns:
+      - name: form_id
+        tests:
+          - not_null
+      - name: submission_date
         tests:
           - not_null
 
@@ -60,5 +70,190 @@ models:
     description: "Brand tracking survey aggregates for client PDF reports."
     columns:
       - name: form_id
+        tests:
+          - not_null
+
+  - name: executive_overview
+    description: "Cross-project executive dashboard source: submissions, sync status, QC flags, and SLA health by registered form."
+    columns:
+      - name: form_id
+        tests:
+          - not_null
+          - unique
+      - name: executive_status
+        tests:
+          - not_null
+
+  - name: dim_powerbi_project
+    description: "Power BI project dimension with clear data, sync, and dashboard status fields."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+          - unique
+      - name: data_status
+        tests:
+          - not_null
+      - name: sync_status
+        tests:
+          - not_null
+      - name: dashboard_status
+        tests:
+          - not_null
+
+  - name: dim_powerbi_state
+    description: "Power BI state dimension for state quota analysis."
+    columns:
+      - name: state_key
+        tests:
+          - not_null
+          - unique
+      - name: state_name
+        tests:
+          - not_null
+
+  - name: dim_powerbi_enumerator
+    description: "Internal helper that maps technical SurveyCTO enumerator keys to human-readable interviewer names before the Power BI scorecard is built."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: enumerator_name
+        tests:
+          - not_null
+
+  - name: fact_powerbi_state_quota
+    description: "Power BI fact table for quota vs achievement by project, state, and wave."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: state_name
+        tests:
+          - not_null
+      - name: state_key
+        tests:
+          - not_null
+
+  - name: fact_powerbi_project_daily
+    description: "Power BI fact table for daily project submission trends."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: submission_date
+        tests:
+          - not_null
+
+  - name: fact_powerbi_qc_summary
+    description: "Power BI fact table for QC flag monitoring."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+
+  - name: fact_powerbi_enumerator_scorecard
+    description: "Power BI fact table for enumerator productivity and quality rankings."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: enumerator_name
+        tests:
+          - not_null
+
+  - name: fact_powerbi_duplicates
+    description: "Power BI fact table for repeated respondent identifiers by state and project."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: respondent_reference
+        tests:
+          - not_null
+      - name: enumerator_name
+        tests:
+          - not_null
+
+  - name: fact_powerbi_regional_performance
+    description: "Power BI fact table for state/regional submissions and approval metrics."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+      - name: state_name
+        tests:
+          - not_null
+      - name: state_key
+        tests:
+          - not_null
+
+  - name: fact_powerbi_pipeline_health
+    description: "Power BI fact table for sync status, SLA breaches, and pipeline recency."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+
+  - name: powerbi_project_risk_summary
+    description: "Power BI project-level operational risk summary combining quota, QC, duplicates, field team, and pipeline health."
+    columns:
+      - name: project_name
+        tests:
+          - not_null
+          - unique
+      - name: data_status
+        tests:
+          - not_null
+      - name: sync_status
+        tests:
+          - not_null
+      - name: dashboard_status
+        tests:
+          - not_null
+
+  - name: powerbi_kpi_snapshot
+    description: "One-row Power BI KPI snapshot for executive cards."
+    columns:
+      - name: snapshot_at
+        tests:
+          - not_null
+
+  - name: achievements_by_state_respondent
+    description: "Rollup by state and interviewer, including missing dimension counters."
+    columns:
+      - name: form_id
+        tests:
+          - not_null
+      - name: state_name
+        tests:
+          - not_null
+      - name: interviewer_id
+        tests:
+          - not_null
+
+  - name: quota_vs_achievement_by_state
+    description: "State-level project quota targets compared with achieved submissions."
+    columns:
+      - name: form_id
+        tests:
+          - not_null
+      - name: state_name
+        tests:
+          - not_null
+      - name: achieved_submissions
+        tests:
+          - not_null
+      - name: quota_status
+        tests:
+          - not_null
+
+  - name: duplicates_by_state_respondent
+    description: "Duplicate respondent identifiers grouped by state."
+    columns:
+      - name: form_id
+        tests:
+          - not_null
+      - name: duplicate_count
         tests:
           - not_null
